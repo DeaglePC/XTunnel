@@ -9,6 +9,7 @@
 #include <vector>
 
 const unsigned short DEFAULT_PORT = 10086;
+const unsigned short DEFAULT_PROXY_PORT = 10001;
 const size_t AUTH_BUF_SIZE = 32;
 const size_t MAX_BUF_SIZE = 1024;
 
@@ -105,7 +106,7 @@ private:
   void deleteProxyConn(int fd);
 
 public:
-  Server(unsigned short port = DEFAULT_PORT);
+  Server(unsigned short port = DEFAULT_PORT, unsigned short proxyPort = DEFAULT_PROXY_PORT);
   ~Server();
   void setPassword(const char *password);
   void startEventLoop();

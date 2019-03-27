@@ -1,6 +1,8 @@
 #include "client.h"
 #include <cstring>
+#include <string>
 #include "tnet.h"
+#include "md5.h"
 
 Client::Client(const char *sip, unsigned short sport) : m_clientSocketFd(-1)
 {
@@ -43,7 +45,7 @@ int Client::connectServer()
 int Client::authServer(const char *password)
 {
     char pw[PW_MAX_LEN];
-    strncpy(pw, "FAE0B27C451C728867A567E8C1BB4E53", PW_MAX_LEN); // 加密成md5
+    strncpy(pw, MD5(password).toStr().c_str(), PW_MAX_LEN); // 加密成md5再传输
     int ret, sendCnt = 0;
     while (1)
     {

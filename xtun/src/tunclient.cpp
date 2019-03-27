@@ -3,34 +3,83 @@
 #include <signal.h>
 #include <vector>
 #include <cstring>
+#include "inifile.h"
 
 std::vector<ProxyInfo> pcs;
+Client *g_pClient = nullptr;
+
+struct ConfigServer
+{
+    unsigned short serverPort;
+    unsigned short proxyPort;
+    std::string password;
+    std::string serverIp;
+} g_cfg;
+
+void readConfig(const char* configFile)
+{
+    string common = "common";
+    inifile::IniFile iniFile;
+    int ret = iniFile.Load(configFile);
+    if(ret == -1)
+    {
+        printf("can't open config file\n");
+        exit(-1);
+    }
+    string serverIp, password;
+    int serverPort, proxyPort;
+    iniFile.GetStringValue(common, "server_ip", &serverIp);
+    iniFile.GetStringValue(common, "password", &password);
+    iniFile.GetIntValue(common, "server_port", &serverPort);
+    iniFile.GetIntValue(common, "proxy_port", &proxyPort);
+
+    g_cfg.password = password;
+    g_cfg.serverIp = serverIp;
+    g_cfg.serverPort = serverPort;
+    g_cfg.proxyPort = proxyPort;
+
+    std::vector<string> sections;
+    int num = iniFile.GetSections(&sections);
+    int localPort, remotePort;
+    std::string localIp;
+    for(int i = 0; i < num; i++)
+    {
+        if(sections[i] != common && sections[i].length() != 0)
+        {
+            ProxyInfo pi;
+            iniFile.GetStringValue(sections[i], "local_ip", &localIp);
+            iniFile.GetIntValue(sections[i], "remote_port", &remotePort);
+            iniFile.GetIntValue(sections[i], "local_port", &localPort);
+
+            strcpy(pi.localIp, localIp.c_str());
+            pi.remotePort = remotePort;
+            pi.localPort = localPort;
+            pcs.push_back(pi);
+            printf("---%s\n", sections[i].c_str());
+        }
+    }
+}
 
 int main(int argc, char const *argv[])
 {
     signal(SIGPIPE, SIG_IGN);
     
-    ProxyInfo info;
-    info.localPort = 22;
-    strcpy(info.localIp, "127.0.0.1");
-    info.remotePort = 38438;
-    pcs.push_back(info);
+    readConfig("tc.ini");
 
-    ProxyInfo info1;
-    info1.localPort = 23;
-    strcpy(info1.localIp, "127.0.0.1");
-    info1.remotePort = 38439;
-    pcs.push_back(info1);
+    g_pClient = new Client(g_cfg.serverIp.c_str(), g_cfg.serverPort);
+    if(g_pClient == nullptr)
+    {
+        printf("make client err\n");
+        return -1;
+    }
+    g_pClient->setProxyConfig(pcs);
 
-    Client *pc = new Client("127.0.0.1", 10086);
-    pc->setProxyConfig(pcs);
-
-    pc->connectServer();
-    int ret = pc->authServer("");
+    g_pClient->connectServer();
+    int ret = g_pClient->authServer(g_cfg.password.c_str());
     printf("auth: %d\n", ret);
 
-    pc->setProxyPort(10001);
-    pc->runClient();
+    g_pClient->setProxyPort(g_cfg.proxyPort);
+    g_pClient->runClient();
 
     return 0;
 }

@@ -1,12 +1,11 @@
 #include "server.h"
 #include <netinet/in.h>
 #include <cstring>
+#include "md5.h"
 
-Server::Server(unsigned short port) : m_serverSocketFd(-1), m_serverPort(port), m_proxyPort(10001)
+Server::Server(unsigned short port, unsigned short proxyPort) : m_serverSocketFd(-1), m_serverPort(port), m_proxyPort(proxyPort)
 {
-    printf("---------\n");
     initServer();
-    printf("+++++\n");
 }
 
 Server::~Server()
@@ -229,7 +228,7 @@ void Server::userReadDataProc(int fd, int mask)
 {
     printf("on userReadDataProc\n");
     int proxyFd = m_mapUsers[fd].proxyFd;
-    if(m_mapProxy[proxyFd].sendSize == sizeof(m_mapProxy[proxyFd].sendBuf))
+    if (m_mapProxy[proxyFd].sendSize == sizeof(m_mapProxy[proxyFd].sendBuf))
     {
         printf("proxy send buf full\n");
         return;
@@ -635,7 +634,7 @@ void Server::setPassword(const char *password)
 {
     if (password != NULL)
     {
-        strcpy(m_serverPassword, password); // md5加密
+        strncpy(m_serverPassword, MD5(password).toStr().c_str(), sizeof(m_serverPassword)); // md5加密
     }
 }
 
