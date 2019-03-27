@@ -56,3 +56,7 @@ TODO：
 - [x] 2.密码加密  
 - [ ] 3.心跳机制  
 - [ ] 4.ssl通讯  
+
+
+ini文件解析来自：https://github.com/Winnerhust/inifile2
+md5加密来自：https://github.com/JieweiWei/md5
