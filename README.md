@@ -1,5 +1,6 @@
 # XTunnel  
 用于穿透内网的工具，基于端口映射原理，正式版本，支持多用户多客户端  
+io模型采用reactor模式的事件驱动模型，实现方法参考redis源码
 
 # 如何使用  
 ```shell
@@ -56,3 +57,7 @@ TODO：
 - [x] 2.密码加密  
 - [ ] 3.心跳机制  
 - [ ] 4.ssl通讯  
+
+
+ini文件解析来自：https://github.com/Winnerhust/inifile2
+md5加密来自：https://github.com/JieweiWei/md5
