@@ -4,7 +4,7 @@
 #include "tnet.h"
 #include "md5.h"
 
-Client::Client(const char *sip, unsigned short sport) : m_clientSocketFd(-1)
+Client::Client(const char *sip, unsigned short sport) : m_clientSocketFd(-1), m_pLogger(nullptr)
 {
     if (sip == NULL)
     {
@@ -34,6 +34,7 @@ Client::~Client()
         m_reactor.removeFileEvent(it.first, EVENT_READABLE | EVENT_WRITABLE);
         close(it.first);
     }
+    m_pLogger->info("----exit client...-----");
 }
 
 int Client::connectServer()
@@ -69,6 +70,7 @@ int Client::authServer()
         else if (ret == -1)
         {
             printf("authServer send err: %d\n", errno);
+            m_pLogger->err("authServer send err: %d", errno);
             return AUTH_ERR;
         }
         else if (ret == 0)
@@ -99,6 +101,7 @@ int Client::authServer()
         else if (ret == -1)
         {
             printf("authServer recv err: %d\n", errno);
+            m_pLogger->err("authServer recv err: %d", errno);
             return AUTH_ERR;
         }
     }
@@ -121,11 +124,13 @@ int Client::sendPorts()
     if (ret == -1)
     {
         printf("sendPorts err: %d\n", errno);
+        m_pLogger->err("sendPorts err: %d\n", errno);
         return -1;
     }
     else if (ret > 0)
     {
         printf("sendPorts num: %ld\n", portNum);
+        m_pLogger->info("sendPorts num: %ld", portNum);
         return portNum;
     }
 }
@@ -140,12 +145,14 @@ void Client::clientReadProc(int fd, int mask)
         if (errno != EAGAIN && EAGAIN != EWOULDBLOCK)
         {
             printf("clientReadProc err: %d\n", errno);
+            m_pLogger->err("clientReadProc err: %d", errno);
             return;
         }
     }
     else if (ret == 0)
     {
         printf("clientReadProc server offline\n");
+        m_pLogger->info("clientReadProc server offline");
         exit(-1);
     }
     else if (ret > 0)
@@ -186,6 +193,7 @@ void Client::porcessMsgBuf()
         m_clientData.recvNum = 0;
         m_clientData.msgData.type = -1;
         printf("new proxy %d %d\n", newProxy.UserId, newProxy.rmeotePort);
+        m_pLogger->info("new proxy %d %d", newProxy.UserId, newProxy.rmeotePort);
         makeNewProxy(newProxy);
     }
 }
@@ -207,6 +215,7 @@ int Client::checkHeartbeatTimerProc(long long id)
     if (subTimeStamp > m_maxServerTimeout)
     {
         printf("server timeout %ldms\n", subTimeStamp);
+        m_pLogger->err("server timeout %ldms", subTimeStamp);
         exit(-1);
     }
     printf("check heartbeat ok!%ld\n", subTimeStamp);
@@ -267,6 +276,7 @@ void Client::localReadDataProc(int fd, int mask)
         if (errno != EAGAIN && EAGAIN != EWOULDBLOCK)
         {
             printf("localReadDataProc recv err: %d\n", errno);
+            m_pLogger->err("localReadDataProc recv err: %d\n", errno);
             return;
         }
     }
@@ -309,6 +319,7 @@ void Client::proxyWriteDataProc(int fd, int mask)
         if (errno != EAGAIN && EAGAIN != EWOULDBLOCK)
         {
             printf("proxyWriteDataProc send err:%d\n", errno);
+            m_pLogger->err("proxyWriteDataProc send err:%d\n", errno);
         }
     }
 }
@@ -319,6 +330,7 @@ void Client::proxyReadDataProc(int fd, int mask)
     if (m_mapLocalConn[localFd].sendSize == sizeof(m_mapLocalConn[localFd].sendBuf))
     {
         printf("local send buf full\n");
+        //m_pLogger->warn("local send buf full");
         return;
     }
     int numRecv = recv(fd, m_mapLocalConn[localFd].sendBuf + m_mapLocalConn[localFd].sendSize,
@@ -328,6 +340,7 @@ void Client::proxyReadDataProc(int fd, int mask)
         if (errno != EAGAIN && EAGAIN != EWOULDBLOCK)
         {
             printf("proxyReadDataProc recv err: %d\n", errno);
+            m_pLogger->err("proxyReadDataProc recv err: %d", errno);
             return;
         }
     }
@@ -363,6 +376,7 @@ void Client::localWriteDataProc(int fd, int mask)
             m_mapLocalConn[fd].sendSize = newSize;
             memmove(m_mapLocalConn[fd].sendBuf, m_mapLocalConn[fd].sendBuf + numSend, newSize);
             printf("localWriteDataProc: send partial data: %d, left:%lu\n", numSend, newSize);
+            m_pLogger->warn("localWriteDataProc: send partial data: %d, left:%lu", numSend, newSize);
         }
     }
     else
@@ -370,6 +384,7 @@ void Client::localWriteDataProc(int fd, int mask)
         if (errno != EAGAIN && EAGAIN != EWOULDBLOCK)
         {
             printf("localWriteDataProc send err:%d\n", errno);
+            m_pLogger->err("localWriteDataProc send err:%d", errno);
         }
     }
 }
@@ -380,6 +395,7 @@ void Client::deleteProxyConn(int fd)
     close(fd);
     m_reactor.removeFileEvent(fd, EVENT_WRITABLE | EVENT_READABLE);
     printf("deleted proxy conn: %d\n", fd);
+    m_pLogger->info("deleted proxy conn: %d", fd);
 }
 
 void Client::deleteLocalConn(int fd)
@@ -388,6 +404,7 @@ void Client::deleteLocalConn(int fd)
     close(fd);
     m_reactor.removeFileEvent(fd, EVENT_WRITABLE | EVENT_READABLE);
     printf("deleted local conn: %d\n", fd);
+    m_pLogger->info("deleted local conn: %d", fd);
 }
 
 int Client::sendProxyInfo(int porxyFd, int userId)
@@ -396,6 +413,7 @@ int Client::sendProxyInfo(int porxyFd, int userId)
     if (ret != sizeof(userId))
     {
         printf("sendProxyInfo err: %d\n", errno);
+        m_pLogger->err("sendProxyInfo err: %d", errno);
         return -1;
     }
 }
@@ -419,6 +437,7 @@ void Client::replyNewProxy(int userId, bool isSuccess)
     if (ret != bufSize)
     {
         printf("replyNewProxy send err: %d\n", errno);
+        m_pLogger->err("replyNewProxy send err: %d", errno);
     }
 }
 
@@ -438,12 +457,14 @@ int Client::connectLocalApp(unsigned short remotePort)
     if (localPort == 0)
     {
         printf("find local port err\n");
+        m_pLogger->err("find local port err");
         return -1;
     }
     int ret = tnet::tcp_generic_connect(localIp, localPort);
     if (ret == -1)
     {
         printf("connect local app fail, addr: %s: %d\n", localIp, localPort);
+        m_pLogger->err("connect local app fail, addr: %s: %d", localIp, localPort);
         return -1;
     }
     return ret;
@@ -482,6 +503,7 @@ int Client::sendHeartbeatTimerProc(long long id)
         if (errno != EAGAIN && errno != EWOULDBLOCK)
         {
             printf("send heartbeat err: %d\n", errno);
+            m_pLogger->err("send heartbeat err: %d", errno);
         }
     }
     else
@@ -493,6 +515,7 @@ int Client::sendHeartbeatTimerProc(long long id)
         else
         {
             printf("send heartbeat: send buf not good!\n");
+            m_pLogger->err("send heartbeat: send buf not good!");
         }
     }
     return HEARTBEAT_INTERVAL_MS;
@@ -516,26 +539,41 @@ void Client::setPassword(const char *password)
     strncpy(m_password, MD5(password).toStr().c_str(), PW_MAX_LEN);
 }
 
+void Client::setLogger(Logger* logger)
+{
+    if(logger == nullptr)
+    {
+        return;
+    }
+    m_pLogger = logger;
+}
+
 void Client::runClient()
 {
     int ret;
     ret = connectServer();
     if (ret == -1)
     {
+        m_pLogger->err("connect server err!");
         return;
     }
+    m_pLogger->info("connect server ok");
 
     ret = authServer();
     if (ret == -1)
     {
+        m_pLogger->err("auth err");
         return;
     }
+    m_pLogger->info("auth ok");
 
     ret = sendPorts();
     if (ret == -1)
     {
+        m_pLogger->err("send ports err");
         return;
     }
+    m_pLogger->info("send ports ok");
     long now_sec, mow_ms;
     getTime(&now_sec, &mow_ms);
     m_lastServerHeartbeatMs = now_sec * 1000 + mow_ms;
@@ -548,5 +586,6 @@ void Client::runClient()
     m_reactor.registFileEvent(m_clientSocketFd, EVENT_READABLE,
                               std::bind(&Client::clientReadProc,
                                         this, std::placeholders::_1, std::placeholders::_2));
+    m_pLogger->info("client running...");
     m_reactor.eventLoop(EVENT_LOOP_ALL_EVENT);
 }

@@ -4,6 +4,7 @@
 #include "tnet.h"
 #include "reactor.h"
 #include "msgdata.h"
+#include "logger.h"
 #include <cstdio>
 #include <unordered_map>
 #include <vector>
@@ -76,6 +77,8 @@ private:
   unsigned short m_proxyPort;
   char m_serverPassword[AUTH_BUF_SIZE];
 
+  Logger *m_pLogger;
+
   long long m_heartbeatTimerId;
 
   ClientInfoMap m_mapClients;
@@ -122,6 +125,7 @@ public:
   Server(unsigned short port = DEFAULT_PORT, unsigned short proxyPort = DEFAULT_PROXY_PORT);
   ~Server();
   void setPassword(const char *password);
+  void setLogger(Logger *logger);
   void startEventLoop();
 };
 

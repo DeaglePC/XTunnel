@@ -5,6 +5,7 @@
 #include <unordered_map>
 #include "reactor.h"
 #include "msgdata.h"
+#include "logger.h"
 
 const size_t PW_MAX_LEN = 32; // len of md5
 const size_t MAX_BUF_SIZE = 1024;
@@ -68,6 +69,7 @@ private:
   char m_serverIp[INET_ADDRSTRLEN];
   int m_clientSocketFd;
   char m_password[PW_MAX_LEN];
+  Logger *m_pLogger;
 
   long long m_heartTimerId;
   long m_maxServerTimeout;   // 多少毫秒没收到服务端的心跳表示断开了连接
@@ -109,6 +111,7 @@ public:
   void setProxyConfig(const std::vector<ProxyInfo> &pcs);
   void setProxyPort(unsigned short proxyPort);
   void setPassword(const char *password);
+  void setLogger(Logger* logger);
   
   void runClient();
 };

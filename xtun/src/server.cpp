@@ -3,7 +3,8 @@
 #include <cstring>
 #include "md5.h"
 
-Server::Server(unsigned short port, unsigned short proxyPort) : m_serverSocketFd(-1), m_serverPort(port), m_proxyPort(proxyPort)
+Server::Server(unsigned short port, unsigned short proxyPort)
+    : m_serverSocketFd(-1), m_serverPort(port), m_proxyPort(proxyPort), m_pLogger(nullptr)
 {
     initServer();
 }
@@ -15,16 +16,16 @@ Server::~Server()
     {
         close(m_serverSocketFd);
     }
-    if(m_proxySocketFd != -1)
+    if (m_proxySocketFd != -1)
     {
         close(m_proxySocketFd);
     }
     std::vector<int> clients;
-    for(const auto& it : m_mapClients)
+    for (const auto &it : m_mapClients)
     {
         clients.push_back(it.first);
     }
-    for(const auto& c: clients)
+    for (const auto &c : clients)
     {
         deleteClient(c);
     }
@@ -806,6 +807,15 @@ int Server::findClientfdByPort(unsigned short port)
         }
     }
     return -1;
+}
+
+void Server::setLogger(Logger *logger)
+{
+    if (logger == nullptr)
+    {
+        return;
+    }
+    m_pLogger = logger;
 }
 
 void Server::startEventLoop()

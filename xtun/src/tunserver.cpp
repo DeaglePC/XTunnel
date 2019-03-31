@@ -3,14 +3,19 @@
 #include <string>
 #include <signal.h>
 #include "inifile.h"
+#include "logger.h"
 
 Server *g_pServer = nullptr;
+std::string g_strCfgFileName;
+const char ERR_PARAM[] = "param is not illage\n";
+Logger g_logger;
 
 struct ConfigServer
 {
     unsigned short serverPort;
     unsigned short proxyPort;
     std::string password;
+    std::string logPath;
 } g_cfg;
 
 void readConfig(const char *cfgFile)
@@ -24,14 +29,36 @@ void readConfig(const char *cfgFile)
     }
     string common = "common";
     int serverPort, porxyPort;
-    string password;
-    iniFile.GetIntValue(common, "server_port", &serverPort);
-    iniFile.GetIntValue(common, "proxy_port", &porxyPort);
-    iniFile.GetStringValue(common, "password", &password);
+    string password, logPath;
+    ret = iniFile.GetIntValue(common, "server_port", &serverPort);
+    if(ret != 0)
+    {
+        printf("config file cann't find server_port\n");
+        exit(-1);
+    }
+    ret = iniFile.GetIntValue(common, "proxy_port", &porxyPort);
+    if(ret != 0)
+    {
+        printf("config file cann't find proxy_port\n");
+        exit(-1);
+    }
+    ret = iniFile.GetStringValue(common, "password", &password);
+    if(ret != 0)
+    {
+        printf("config file cann't find password\n");
+        exit(-1);
+    }
+    ret = iniFile.GetStringValue(common, "log_path", &logPath);
+    if(ret != 0)
+    {
+        printf("config file cann't find log_path\n");
+        exit(-1);
+    }
 
     g_cfg.password = password;
     g_cfg.serverPort = serverPort;
     g_cfg.proxyPort = porxyPort;
+    g_cfg.logPath = logPath;
     //printf("pw:%s\nsp: %d\npp: %d\n", g_cfg.password.c_str(), g_cfg.serverPort, g_cfg.proxyPort);
 }
 
@@ -63,12 +90,40 @@ void setupSignalHandlers()
     sigaction(SIGINT, &act, NULL);
 }
 
-int main(int argc, char const *argv[])
+int main(int argc, char *argv[])
 {
     signal(SIGPIPE, SIG_IGN);
     setupSignalHandlers();
 
-    readConfig("ts.ini");
+    int op;
+    while ((op = getopt(argc, argv, "c:d")) != -1)
+    {
+        switch (op)
+        {
+        case 'c':
+            if(optarg == NULL)
+            {
+                printf(ERR_PARAM);
+                exit(-1);
+            }
+            g_strCfgFileName = std::string(optarg);
+            break;
+        case 'd':
+            break;
+        default:
+            printf(ERR_PARAM);
+            exit(-1);
+            break;
+        }
+    }
+
+    readConfig(g_strCfgFileName.c_str());
+    g_logger.setLogPath(g_cfg.logPath.c_str());
+    g_logger.setAppName("xtuns");
+    g_logger.info("-------------------------");
+    g_logger.warn("-------------------------");
+    g_logger.err("-------------------------");
+
     g_pServer = new Server(g_cfg.serverPort, g_cfg.proxyPort);
     if (g_pServer == nullptr)
     {
@@ -76,7 +131,9 @@ int main(int argc, char const *argv[])
         return -1;
     }
     g_pServer->setPassword(g_cfg.password.c_str());
+    g_pServer->setLogger(&g_logger);
     g_pServer->startEventLoop();
+
     delete g_pServer;
     return 0;
 }
