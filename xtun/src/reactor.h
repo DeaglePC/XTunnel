@@ -33,6 +33,7 @@ public:
   ~Reactor();
 
   void eventLoop(int flag);
+  void stopEventLoop();
 
   void registFileEvent(int fd, int mask, FileProc proc);
   void removeFileEvent(int fd, int mask);

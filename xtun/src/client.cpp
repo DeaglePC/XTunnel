@@ -12,17 +12,27 @@ Client::Client(const char *sip, unsigned short sport) : m_clientSocketFd(-1)
     }
     strcpy(m_serverIp, sip);
     m_serverPort = sport;
+    m_maxServerTimeout = DEFAULT_SERVER_TIMEOUT_MS;
 }
 
 Client::~Client()
 {
-}
-
-void Client::setProxyConfig(const std::vector<ProxyInfo> &pcs)
-{
-    for (int i = 0; i < pcs.size(); i++)
+    m_reactor.stopEventLoop();
+    if (m_clientSocketFd != -1)
     {
-        m_configProxy.push_back(pcs[i]);
+        close(m_clientSocketFd);
+        m_reactor.removeFileEvent(m_clientSocketFd, EVENT_READABLE | EVENT_WRITABLE);
+    }
+
+    for (const auto &it : m_mapProxyConn)
+    {
+        m_reactor.removeFileEvent(it.first, EVENT_READABLE | EVENT_WRITABLE);
+        close(it.first);
+    }
+    for (const auto &it : m_mapLocalConn)
+    {
+        m_reactor.removeFileEvent(it.first, EVENT_READABLE | EVENT_WRITABLE);
+        close(it.first);
     }
 }
 
@@ -42,14 +52,12 @@ int Client::connectServer()
  * server->client: Y/N, len=1byte
  * return: -1: err, 0: ok, 1: wrong password
  */
-int Client::authServer(const char *password)
+int Client::authServer()
 {
-    char pw[PW_MAX_LEN];
-    strncpy(pw, MD5(password).toStr().c_str(), PW_MAX_LEN); // 加密成md5再传输
     int ret, sendCnt = 0;
     while (1)
     {
-        ret = send(m_clientSocketFd, pw + sendCnt, PW_MAX_LEN - sendCnt, 0);
+        ret = send(m_clientSocketFd, m_password + sendCnt, PW_MAX_LEN - sendCnt, 0);
         if (ret > 0)
         {
             sendCnt += ret;
@@ -122,21 +130,6 @@ int Client::sendPorts()
     }
 }
 
-void Client::runClient()
-{
-    int ret;
-    ret = sendPorts();
-    if (ret == -1)
-    {
-        return;
-    }
-    tnet::non_block(m_clientSocketFd);
-    m_reactor.registFileEvent(m_clientSocketFd, EVENT_READABLE,
-                              std::bind(&Client::clientReadProc,
-                                        this, std::placeholders::_1, std::placeholders::_2));
-    m_reactor.eventLoop(EVENT_LOOP_ALL_EVENT);
-}
-
 void Client::clientReadProc(int fd, int mask)
 {
     int ret = recv(fd, m_clientData.buf + m_clientData.recvNum,
@@ -179,6 +172,11 @@ void Client::porcessMsgBuf()
         m_clientData.recvSize = sizeof(MsgData);
         m_clientData.recvNum = 0;
         m_clientData.msgData.type = -1;
+
+        if (strncmp(m_clientData.buf, HEARTBEAT_SERVER_MSG, strlen(HEARTBEAT_SERVER_MSG)) == 0)
+        {
+            processHeartbeat();
+        }
     }
     else if (m_clientData.msgData.type == MSGTYPE_NEW_PROXY)
     {
@@ -190,6 +188,29 @@ void Client::porcessMsgBuf()
         printf("new proxy %d %d\n", newProxy.UserId, newProxy.rmeotePort);
         makeNewProxy(newProxy);
     }
+}
+
+void Client::processHeartbeat()
+{
+    long now_sec, now_ms;
+    getTime(&now_sec, &now_ms);
+    m_lastServerHeartbeatMs = now_sec * 1000 + now_ms;
+}
+
+int Client::checkHeartbeatTimerProc(long long id)
+{
+    long now_sec, now_ms;
+    long long nowTimeStamp;
+    getTime(&now_sec, &now_ms);
+    nowTimeStamp = now_sec * 1000 + now_ms;
+    long subTimeStamp = nowTimeStamp - m_lastServerHeartbeatMs;
+    if (subTimeStamp > m_maxServerTimeout)
+    {
+        printf("server timeout %ldms\n", subTimeStamp);
+        exit(-1);
+    }
+    printf("check heartbeat ok!%ld\n", subTimeStamp);
+    return HEARTBEAT_INTERVAL_MS;
 }
 
 /* 创建新代理通道
@@ -234,7 +255,7 @@ void Client::makeNewProxy(NewProxyMsg newProxy)
 void Client::localReadDataProc(int fd, int mask)
 {
     int proxyFd = m_mapLocalConn[fd].proxyFd;
-    if(m_mapProxyConn[proxyFd].sendSize == sizeof(m_mapProxyConn[proxyFd].sendBuf))
+    if (m_mapProxyConn[proxyFd].sendSize == sizeof(m_mapProxyConn[proxyFd].sendBuf))
     {
         printf("proxy send buf full\n");
         return;
@@ -295,7 +316,7 @@ void Client::proxyWriteDataProc(int fd, int mask)
 void Client::proxyReadDataProc(int fd, int mask)
 {
     int localFd = m_mapProxyConn[fd].localFd;
-    if(m_mapLocalConn[localFd].sendSize == sizeof(m_mapLocalConn[localFd].sendBuf))
+    if (m_mapLocalConn[localFd].sendSize == sizeof(m_mapLocalConn[localFd].sendBuf))
     {
         printf("local send buf full\n");
         return;
@@ -444,7 +465,88 @@ int Client::connectServerProxy()
     return fd;
 }
 
+int Client::sendHeartbeatTimerProc(long long id)
+{
+    MsgData heartData;
+    heartData.type = MSGTYPE_HEARTBEAT;
+    heartData.size = strlen(HEARTBEAT_CLIENT_MSG);
+
+    size_t bufSize = sizeof(heartData) + strlen(HEARTBEAT_CLIENT_MSG);
+    char buf[bufSize];
+    memcpy(buf, &heartData, sizeof(heartData));
+    memcpy(buf + sizeof(heartData), HEARTBEAT_CLIENT_MSG, strlen(HEARTBEAT_CLIENT_MSG));
+
+    int ret = send(m_clientSocketFd, buf, bufSize, MSG_DONTWAIT);
+    if (ret == -1)
+    {
+        if (errno != EAGAIN && errno != EWOULDBLOCK)
+        {
+            printf("send heartbeat err: %d\n", errno);
+        }
+    }
+    else
+    {
+        if (ret == bufSize)
+        {
+            printf("send heartbeat success!\n");
+        }
+        else
+        {
+            printf("send heartbeat: send buf not good!\n");
+        }
+    }
+    return HEARTBEAT_INTERVAL_MS;
+}
+
 void Client::setProxyPort(unsigned short proxyPort)
 {
     m_serverProxyPort = proxyPort;
+}
+
+void Client::setProxyConfig(const std::vector<ProxyInfo> &pcs)
+{
+    for (int i = 0; i < pcs.size(); i++)
+    {
+        m_configProxy.push_back(pcs[i]);
+    }
+}
+
+void Client::setPassword(const char *password)
+{
+    strncpy(m_password, MD5(password).toStr().c_str(), PW_MAX_LEN);
+}
+
+void Client::runClient()
+{
+    int ret;
+    ret = connectServer();
+    if (ret == -1)
+    {
+        return;
+    }
+
+    ret = authServer();
+    if (ret == -1)
+    {
+        return;
+    }
+
+    ret = sendPorts();
+    if (ret == -1)
+    {
+        return;
+    }
+    long now_sec, mow_ms;
+    getTime(&now_sec, &mow_ms);
+    m_lastServerHeartbeatMs = now_sec * 1000 + mow_ms;
+
+    tnet::non_block(m_clientSocketFd);
+    m_reactor.registTimeEvent(0,
+                              std::bind(&Client::sendHeartbeatTimerProc, this, std::placeholders::_1));
+    m_reactor.registTimeEvent(HEARTBEAT_INTERVAL_MS,
+                              std::bind(&Client::checkHeartbeatTimerProc, this, std::placeholders::_1));
+    m_reactor.registFileEvent(m_clientSocketFd, EVENT_READABLE,
+                              std::bind(&Client::clientReadProc,
+                                        this, std::placeholders::_1, std::placeholders::_2));
+    m_reactor.eventLoop(EVENT_LOOP_ALL_EVENT);
 }

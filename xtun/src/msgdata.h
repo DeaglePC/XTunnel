@@ -27,5 +27,7 @@ struct ReplyNewProxyMsg
     bool IsSuccess;
 };
 
+const char HEARTBEAT_CLIENT_MSG[] = "ping";
+const char HEARTBEAT_SERVER_MSG[] = "pong";
 
 #endif

@@ -73,11 +73,7 @@ int main(int argc, char const *argv[])
         return -1;
     }
     g_pClient->setProxyConfig(pcs);
-
-    g_pClient->connectServer();
-    int ret = g_pClient->authServer(g_cfg.password.c_str());
-    printf("auth: %d\n", ret);
-
+    g_pClient->setPassword(g_cfg.password.c_str());
     g_pClient->setProxyPort(g_cfg.proxyPort);
     g_pClient->runClient();
 

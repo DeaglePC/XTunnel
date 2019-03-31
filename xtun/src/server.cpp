@@ -10,9 +10,23 @@ Server::Server(unsigned short port, unsigned short proxyPort) : m_serverSocketFd
 
 Server::~Server()
 {
+    printf("~~~~~~~gg~~~~~~~~\n");
     if (m_serverSocketFd != -1)
     {
         close(m_serverSocketFd);
+    }
+    if(m_proxySocketFd != -1)
+    {
+        close(m_proxySocketFd);
+    }
+    std::vector<int> clients;
+    for(const auto& it : m_mapClients)
+    {
+        clients.push_back(it.first);
+    }
+    for(const auto& c: clients)
+    {
+        deleteClient(c);
     }
 }
 
@@ -67,6 +81,8 @@ void Server::initServer()
     {
         exit(-1);
     }
+    m_heartbeatTimerId = m_reactor.registTimeEvent(HEARTBEAT_INTERVAL_MS,
+                                                   std::bind(&Server::checkHeartbeatTimerProc, this, std::placeholders::_1));
 }
 
 void Server::proxyAcceptProc(int fd, int mask)
@@ -457,12 +473,8 @@ void Server::recvClientProxyPorts(int fd, int mask)
             m_mapClients[fd].recvNum += ret;
             if (m_mapClients[fd].recvNum == targetNum)
             {
-                listenRemotePort(fd);
-                m_mapClients[fd].recvSize = sizeof(MsgData);
-                m_mapClients[fd].recvNum = 0;
-                m_reactor.registFileEvent(fd, EVENT_READABLE,
-                                          std::bind(&Server::recvClientDataProc,
-                                                    this, std::placeholders::_1, std::placeholders::_2));
+                // init client
+                initClient(fd);
             }
         }
         else if (ret == 0)
@@ -478,6 +490,17 @@ void Server::recvClientProxyPorts(int fd, int mask)
             }
         }
     }
+}
+
+void Server::initClient(int fd)
+{
+    listenRemotePort(fd);
+    m_mapClients[fd].recvSize = sizeof(MsgData);
+    m_mapClients[fd].recvNum = 0;
+    updateClientHeartbeat(fd);
+    m_reactor.registFileEvent(fd, EVENT_READABLE,
+                              std::bind(&Server::recvClientDataProc,
+                                        this, std::placeholders::_1, std::placeholders::_2));
 }
 
 int Server::listenRemotePort(int cfd)
@@ -527,7 +550,7 @@ void Server::userAcceptProc(int fd, int mask)
         }
         printf("userAcceptProc new conn from %s:%d\n", ip, port);
         UserInfo info;
-        info.port = port;
+        info.port = m_mapListen[fd].port;
         m_mapUsers[connfd] = info;
         tnet::non_block(connfd);
         sendClientNewProxy(m_mapListen[fd].clientFd, connfd, m_mapListen[fd].port);
@@ -597,6 +620,13 @@ void Server::processClientBuf(int cfd)
         m_mapClients[cfd].recvSize = sizeof(MsgData);
         m_mapClients[cfd].recvNum = 0;
         m_mapClients[cfd].msgData.type = -1;
+
+        if (strncmp(m_mapClients[cfd].recvBuf, HEARTBEAT_CLIENT_MSG,
+                    strlen(HEARTBEAT_CLIENT_MSG)) == 0)
+        {
+            updateClientHeartbeat(cfd);
+            sendHeartbeat(cfd);
+        }
     }
     else if (m_mapClients[cfd].msgData.type == MSGTYPE_REPLY_NEW_PROXY)
     {
@@ -607,6 +637,73 @@ void Server::processClientBuf(int cfd)
         m_mapClients[cfd].msgData.type = -1;
         processNewProxy(rnpm);
     }
+}
+
+void Server::sendHeartbeat(int cfd)
+{
+    MsgData heartData;
+    heartData.type = MSGTYPE_HEARTBEAT;
+    heartData.size = strlen(HEARTBEAT_SERVER_MSG);
+
+    size_t bufSize = sizeof(heartData) + strlen(HEARTBEAT_SERVER_MSG);
+    char buf[bufSize];
+    memcpy(buf, &heartData, sizeof(heartData));
+    memcpy(buf + sizeof(heartData), HEARTBEAT_SERVER_MSG, strlen(HEARTBEAT_SERVER_MSG));
+
+    int ret = send(cfd, buf, bufSize, MSG_DONTWAIT);
+    if (ret == -1)
+    {
+        if (errno != EAGAIN && errno != EWOULDBLOCK)
+        {
+            printf("send heartbeat err: %d\n", errno);
+        }
+    }
+    else
+    {
+        if (ret == bufSize)
+        {
+            printf("send to client: %d heartbeat success!\n", cfd);
+        }
+        else
+        {
+            printf("send to client: %d heartbeat not good!\n", cfd);
+        }
+    }
+}
+
+void Server::updateClientHeartbeat(int cfd)
+{
+    long now_sec, now_ms;
+    getTime(&now_sec, &now_ms);
+    m_mapClients[cfd].lastHeartbeat = now_sec * 1000 + now_ms;
+}
+
+int Server::checkHeartbeatTimerProc(long long id)
+{
+    std::vector<int> timeoutClients;
+    for (const auto &it : m_mapClients)
+    {
+        if (it.second.lastHeartbeat != -1)
+        {
+            long now_sec, now_ms;
+            long long nowTimeStamp;
+            getTime(&now_sec, &now_ms);
+            nowTimeStamp = now_sec * 1000 + now_ms;
+            long subTimeStamp = nowTimeStamp - it.second.lastHeartbeat;
+            printf("check timeout: %ld\n", subTimeStamp);
+            if (subTimeStamp > DEFAULT_SERVER_TIMEOUT_MS)
+            {
+                // delete
+                timeoutClients.push_back(it.first);
+            }
+        }
+    }
+    for (const auto &it : timeoutClients)
+    {
+        printf("client %d is timeout\n", it);
+        deleteClient(it);
+    }
+    return HEARTBEAT_INTERVAL_MS;
 }
 
 void Server::processNewProxy(ReplyNewProxyMsg rnpm)
@@ -644,6 +741,43 @@ void Server::deleteClient(int fd)
     m_reactor.removeFileEvent(fd, EVENT_READABLE | EVENT_WRITABLE);
     m_mapClients.erase(fd);
     close(fd);
+    // 需要加快效率，不应每次遍历,注意删除顺序,proxy -> user -> remotelisten
+    // 删除相关的proxy连接
+    for (auto it = m_mapProxy.begin(); it != m_mapProxy.end();)
+    {
+        int ufd, cfd;
+        ufd = it->second.userFd;
+        cfd = findClientfdByPort(m_mapUsers[ufd].port);
+        if (cfd == fd)
+        {
+            int pfd = it->first;
+            m_reactor.removeFileEvent(pfd, EVENT_READABLE | EVENT_WRITABLE);
+            close(pfd);
+            it = m_mapProxy.erase(it);
+            printf("delete proxy conn with this client! %d\n", pfd);
+        }
+        else
+        {
+            it++;
+        }
+    }
+    // 删除相关的user
+    for (auto it = m_mapUsers.begin(); it != m_mapUsers.end();)
+    {
+        int cfd = findClientfdByPort(it->second.port);
+        if (cfd == fd)
+        {
+            int ufd = it->first;
+            m_reactor.removeFileEvent(ufd, EVENT_READABLE | EVENT_WRITABLE);
+            close(ufd);
+            it = m_mapUsers.erase(it);
+            printf("delete user conn with this client! %d\n", ufd);
+        }
+        else
+        {
+            it++;
+        }
+    }
     // 删除此客户端对应的公网监听的端口相关的资源
     for (auto it = m_mapListen.begin(); it != m_mapListen.end();)
     {
@@ -653,6 +787,7 @@ void Server::deleteClient(int fd)
             m_reactor.removeFileEvent(remoteListenFd, EVENT_READABLE | EVENT_WRITABLE);
             close(remoteListenFd);
             it = m_mapListen.erase(it);
+            printf("delete remote listen fd with this client! %d\n", remoteListenFd);
         }
         else
         {
@@ -661,7 +796,19 @@ void Server::deleteClient(int fd)
     }
 }
 
+int Server::findClientfdByPort(unsigned short port)
+{
+    for (const auto &it : m_mapListen)
+    {
+        if (it.second.port == port)
+        {
+            return it.second.clientFd;
+        }
+    }
+    return -1;
+}
+
 void Server::startEventLoop()
 {
-    m_reactor.eventLoop(EVENT_LOOP_FILE_EVENT);
+    m_reactor.eventLoop(EVENT_LOOP_FILE_EVENT | EVENT_LOOP_TIMER_EVENT);
 }

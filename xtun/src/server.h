@@ -12,6 +12,10 @@ const unsigned short DEFAULT_PORT = 10086;
 const unsigned short DEFAULT_PROXY_PORT = 10001;
 const size_t AUTH_BUF_SIZE = 32;
 const size_t MAX_BUF_SIZE = 1024;
+const int HEARTBEAT_INTERVAL_MS = 1000;      // 每次心跳的间隔时间
+const long DEFAULT_SERVER_TIMEOUT_MS = 5000; // 默认5秒没收到服务端的心跳表示服务端不在
+extern const char HEARTBEAT_CLIENT_MSG[];
+extern const char HEARTBEAT_SERVER_MSG[];
 
 struct ClientInfo
 {
@@ -22,10 +26,11 @@ struct ClientInfo
   int recvNum;
   int recvSize;
   char recvBuf[MAX_BUF_SIZE];
+  long long lastHeartbeat; // 上次收到心跳的时间戳，如果是-1，表示还没初始化客户端，无需检测
 
   std::vector<unsigned short> remotePorts;
 
-  ClientInfo() : authRecvNum(0), recvNum(0) {}
+  ClientInfo() : authRecvNum(0), recvNum(0), lastHeartbeat(-1) {}
 };
 using ClientInfoMap = std::unordered_map<int, ClientInfo>;
 
@@ -71,6 +76,8 @@ private:
   unsigned short m_proxyPort;
   char m_serverPassword[AUTH_BUF_SIZE];
 
+  long long m_heartbeatTimerId;
+
   ClientInfoMap m_mapClients;
   ListenInfoMap m_mapListen;
   UserInfoMap m_mapUsers;
@@ -89,8 +96,13 @@ private:
   void processClientBuf(int cfd);
   void userAcceptProc(int fd, int mask); // 接收user的连接
   void sendClientNewProxy(int cfd, int ufd, unsigned short port);
+  void sendHeartbeat(int cfd);         // 回复心跳
+  void updateClientHeartbeat(int cfd); // 更新客户端心跳时间
 
-  void processNewProxy(ReplyNewProxyMsg rnpm);
+  int checkHeartbeatTimerProc(long long id); // 检查客户端心跳,定时器
+
+  void processNewProxy(ReplyNewProxyMsg rnpm);  // 处理新代理连接
+  int findClientfdByPort(unsigned short port);  // 通过对外端口查找属于哪个客户端
 
   int listenRemotePort(int cfd);                // 监听cfd客户端的远程端口
   void proxyAcceptProc(int fd, int mask);       // 代理端口收到新连接的处理
@@ -101,6 +113,7 @@ private:
   void userReadDataProc(int fd, int mask);   // 接收用户发来的数据
   void userWriteDataProc(int fd, int mask);  // 给用户发送的数据
 
+  void initClient(int fd);
   void deleteClient(int fd);
   void deleteUser(int fd);
   void deleteProxyConn(int fd);

@@ -35,9 +35,38 @@ void readConfig(const char *cfgFile)
     //printf("pw:%s\nsp: %d\npp: %d\n", g_cfg.password.c_str(), g_cfg.serverPort, g_cfg.proxyPort);
 }
 
+void sigShutdownHandler(int sig)
+{
+    switch (sig)
+    {
+    case SIGINT:
+    case SIGTERM:
+        if(g_pServer != nullptr)
+            delete g_pServer;
+        break;
+    default:
+        break;
+    }
+    exit(0);
+}
+
+/*
+ * 设置处理信号的函数
+ */
+void setupSignalHandlers()
+{
+    struct sigaction act;
+    sigemptyset(&act.sa_mask);
+    act.sa_flags = 0;
+    act.sa_handler = sigShutdownHandler;
+    sigaction(SIGTERM, &act, NULL);
+    sigaction(SIGINT, &act, NULL);
+}
+
 int main(int argc, char const *argv[])
 {
     signal(SIGPIPE, SIG_IGN);
+    setupSignalHandlers();
 
     readConfig("ts.ini");
     g_pServer = new Server(g_cfg.serverPort, g_cfg.proxyPort);
