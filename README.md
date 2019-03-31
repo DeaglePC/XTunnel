@@ -5,7 +5,9 @@ io模型采用reactor模式的事件驱动模型，实现方法参考redis源码
 ## 如何使用  
 1. 编译代码  
 ```shell
-make clean
+git clone https://github.com/DeaglePC/XTunnel.git
+cd XTunnel/xtun/
+make distclean
 make
 cd bin
 ```
@@ -40,13 +42,11 @@ remote_port = 38438 # 远程服务器暴露的端口
 
 4. 运行服务端  
 ```shell
-cd bin
 ./tunserver -c /home/ts.ini -d
 ```
 
 5. 运行客户端
 ```shell
-cd bin
 ./tunclient -c /home/tc.ini -d
 ```
 
