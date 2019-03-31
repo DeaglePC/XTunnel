@@ -29,6 +29,7 @@ Server::~Server()
     {
         deleteClient(c);
     }
+    m_pLogger->info("exit server...");
 }
 
 int Server::listenControl()
@@ -37,12 +38,14 @@ int Server::listenControl()
     if (m_serverSocketFd == NET_ERR)
     {
         printf("make server socker err!\n");
+        m_pLogger->err("make server socker err!");
         return -1;
     }
     int ret = tnet::tcp_listen(m_serverSocketFd, m_serverPort);
     if (ret == NET_ERR)
     {
         printf("server listen err!\n");
+        m_pLogger->err("server listen err!");
         return -1;
     }
     tnet::non_block(m_serverSocketFd);
@@ -57,12 +60,14 @@ int Server::listenProxy()
     if (m_proxySocketFd == NET_ERR)
     {
         printf("make proxy socker err!\n");
+        m_pLogger->err("make proxy socker err!");
         return -1;
     }
     int ret = tnet::tcp_listen(m_proxySocketFd, m_proxyPort);
     if (ret == NET_ERR)
     {
         printf("server listen err!\n");
+        m_pLogger->err("server listen err!");
         return -1;
     }
     m_reactor.registFileEvent(m_proxySocketFd, EVENT_READABLE,
@@ -98,10 +103,12 @@ void Server::proxyAcceptProc(int fd, int mask)
             if (errno != EAGAIN && EAGAIN != EWOULDBLOCK)
             {
                 printf("proxyAcceptProc accept err: %d\n", errno);
+                m_pLogger->err("proxyAcceptProc accept err: %d", errno);
             }
             return;
         }
         printf("proxyAcceptProc new conn from %s:%d\n", ip, port);
+        m_pLogger->info("new proxy connection from %s:%d", ip, port);
         ProxyConnInfo pci;
         pci.recvNum = 0;
         pci.recvSize = sizeof(int);
@@ -122,6 +129,7 @@ void Server::proxyReadUserInfoProc(int fd, int mask)
         if (errno != EAGAIN && EAGAIN != EWOULDBLOCK)
         {
             printf("proxyReadUserInfoProc err: %d\n", errno);
+            m_pLogger->err("proxyReadUserInfoProc err: %d", errno);
             return;
         }
     }
@@ -148,6 +156,7 @@ void Server::proxyReadUserInfoProc(int fd, int mask)
                                           std::bind(&Server::userReadDataProc,
                                                     this, std::placeholders::_1, std::placeholders::_2));
                 printf("start new proxy..., %d<--->%d\n", userFd, fd);
+                m_pLogger->info("start new proxy..., %d<--->%d", userFd, fd);
             }
             else
             {
@@ -164,6 +173,7 @@ void Server::deleteProxyConn(int fd)
     close(fd);
     m_reactor.removeFileEvent(fd, EVENT_READABLE | EVENT_WRITABLE);
     printf("deleted proxy conn: %d\n", fd);
+    m_pLogger->info("deleted proxy conn: %d", fd);
 }
 
 /*
@@ -186,6 +196,7 @@ void Server::proxyReadDataProc(int fd, int mask)
         if (errno != EAGAIN && EAGAIN != EWOULDBLOCK)
         {
             printf("proxyReadDataProc recv err: %d\n", errno);
+            m_pLogger->err("proxyReadDataProc recv err: %d\n", errno);
             return;
         }
     }
@@ -234,6 +245,7 @@ void Server::userWriteDataProc(int fd, int mask)
         if (errno != EAGAIN && EAGAIN != EWOULDBLOCK)
         {
             printf("userWriteDataProc send err:%d\n", errno);
+            m_pLogger->err("userWriteDataProc send err:%d", errno);
         }
     }
 }
@@ -257,6 +269,7 @@ void Server::userReadDataProc(int fd, int mask)
         if (errno != EAGAIN && EAGAIN != EWOULDBLOCK)
         {
             printf("userReadDataProc recv err: %d\n", errno);
+            m_pLogger->err("userReadDataProc recv err: %d\n", errno);
             return;
         }
     }
@@ -303,6 +316,7 @@ void Server::proxyWriteDataProc(int fd, int mask)
         if (errno != EAGAIN && EAGAIN != EWOULDBLOCK)
         {
             printf("proxyWriteDataProc send err:%d\n", errno);
+            m_pLogger->err("proxyWriteDataProc send err:%d", errno);
         }
     }
 }
@@ -319,10 +333,12 @@ void Server::serverAcceptProc(int fd, int mask)
             if (errno != EAGAIN && EAGAIN != EWOULDBLOCK)
             {
                 printf("serverAcceptProc accept err: %d\n", errno);
+                m_pLogger->err("serverAcceptProc accept err: %d", errno);
             }
             return;
         }
         printf("serverAcceptProc new conn from %s:%d\n", ip, port);
+        m_pLogger->info("new client connection from %s:%d", ip, port);
         m_mapClients[connfd] = ClientInfo();
         tnet::non_block(connfd);
         m_reactor.registFileEvent(connfd, EVENT_READABLE,
@@ -343,6 +359,7 @@ void Server::clientAuthProc(int fd, int mask)
             if (errno != EAGAIN && EAGAIN != EWOULDBLOCK)
             {
                 printf("recv client auth msg err: %d\n", errno);
+                m_pLogger->err("recv client auth msg err: %d\n", errno);
             }
             return;
         }
@@ -405,7 +422,8 @@ void Server::replyClientAuth(int fd, bool isGood)
     {
         if (errno != EAGAIN && EAGAIN != EWOULDBLOCK)
         {
-            printf("replyClientAuthProcY err: %d\n", errno);
+            printf("replyClientAuth err: %d\n", errno);
+            m_pLogger->err("replyClientAuth err: %d\n", errno);
             deleteClient(fd);
         }
     }
@@ -415,6 +433,7 @@ void Server::replyClientAuth(int fd, bool isGood)
         if (!isGood)
         {
             printf("pw not good, delete client...\n");
+            m_pLogger->info("password not good, delete client...");
             deleteClient(fd);
         }
         else
@@ -426,6 +445,9 @@ void Server::replyClientAuth(int fd, bool isGood)
     }
 }
 
+/**
+ * 接收客户端发送的端口
+*/
 void Server::recvClientProxyPorts(int fd, int mask)
 {
     // 还没有开始保存端口数据
@@ -458,6 +480,7 @@ void Server::recvClientProxyPorts(int fd, int mask)
             if (errno != EAGAIN && EAGAIN != EWOULDBLOCK)
             {
                 printf("recvClientProxyPorts err: %d\n", errno);
+                m_pLogger->err("recvClientProxyPorts err: %d", errno);
                 deleteClient(fd);
             }
         }
@@ -487,10 +510,26 @@ void Server::recvClientProxyPorts(int fd, int mask)
             if (errno != EAGAIN && EAGAIN != EWOULDBLOCK)
             {
                 printf("recvClientProxyPorts err: %d\n", errno);
+                m_pLogger->err("recvClientProxyPorts err: %d", errno);
                 deleteClient(fd);
             }
         }
     }
+}
+
+/**
+ * 暂时无用
+*/
+bool Server::isExistsPort(unsigned short port)
+{
+    for(const auto& it: m_mapListen)
+    {
+        if(it.second.port == port)
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
 void Server::initClient(int fd)
@@ -507,12 +546,14 @@ void Server::initClient(int fd)
 int Server::listenRemotePort(int cfd)
 {
     size_t len = m_mapClients[cfd].remotePorts.size();
+    int num = 0;
     for (int i = 0; i < len; i++)
     {
         int fd = tnet::tcp_socket();
         if (fd == -1)
         {
             printf("listenRemotePort make socket err: %d\n", errno);
+            m_pLogger->err("listenRemotePort make socket err: %d", errno);
             continue;
         }
         unsigned short port = m_mapClients[cfd].remotePorts[i];
@@ -520,8 +561,10 @@ int Server::listenRemotePort(int cfd)
         if (ret == -1)
         {
             printf("listenRemotePort listen port:%d err: %d\n", port, errno);
+            m_pLogger->err("listenRemotePort listen port:%d err: %d", port, errno);
             continue;
         }
+        num++;
         ListenInfo linfo;
         linfo.port = port;
         linfo.clientFd = cfd;
@@ -531,7 +574,9 @@ int Server::listenRemotePort(int cfd)
                                   std::bind(&Server::userAcceptProc,
                                             this, std::placeholders::_1, std::placeholders::_2));
         printf("listenRemotePort listening port: %d\n", port);
+        m_pLogger->info("listenRemotePort listening port: %d", port);
     }
+    return num;
 }
 
 void Server::userAcceptProc(int fd, int mask)
@@ -546,10 +591,12 @@ void Server::userAcceptProc(int fd, int mask)
             if (errno != EAGAIN && EAGAIN != EWOULDBLOCK)
             {
                 printf("userAcceptProc accept err: %d\n", errno);
+                m_pLogger->err("userAcceptProc accept err: %d", errno);
             }
             return;
         }
         printf("userAcceptProc new conn from %s:%d\n", ip, port);
+        m_pLogger->info("new user connection from %s:%d", ip, port);
         UserInfo info;
         info.port = m_mapListen[fd].port;
         m_mapUsers[connfd] = info;
@@ -577,6 +624,7 @@ void Server::sendClientNewProxy(int cfd, int ufd, unsigned short remotePort)
     if (ret != bufSize)
     {
         printf("sendClientNewProxy err: %d\n", errno);
+        m_pLogger->err("sendClientNewProxy err: %d", errno);
     }
 }
 
@@ -590,6 +638,7 @@ void Server::recvClientDataProc(int fd, int mask)
         if (errno != EAGAIN && EAGAIN != EWOULDBLOCK)
         {
             printf("recvClientDataProc err: %d\n", errno);
+            m_pLogger->err("recvClientDataProc err: %d", errno);
             return;
         }
     }
@@ -657,6 +706,7 @@ void Server::sendHeartbeat(int cfd)
         if (errno != EAGAIN && errno != EWOULDBLOCK)
         {
             printf("send heartbeat err: %d\n", errno);
+            m_pLogger->err("send heartbeat err: %d", errno);
         }
     }
     else
@@ -668,6 +718,7 @@ void Server::sendHeartbeat(int cfd)
         else
         {
             printf("send to client: %d heartbeat not good!\n", cfd);
+            m_pLogger->warn("send to client: %d heartbeat not good!", cfd);
         }
     }
 }
@@ -702,6 +753,7 @@ int Server::checkHeartbeatTimerProc(long long id)
     for (const auto &it : timeoutClients)
     {
         printf("client %d is timeout\n", it);
+        m_pLogger->info("client %d is timeout", it);
         deleteClient(it);
     }
     return HEARTBEAT_INTERVAL_MS;
@@ -712,10 +764,12 @@ void Server::processNewProxy(ReplyNewProxyMsg rnpm)
     if (rnpm.IsSuccess)
     {
         printf("make proxy tunnel success\n");
+        m_pLogger->info("make proxy tunnel success");
     }
     else
     {
         printf("make proxy tunnel fail\n");
+        m_pLogger->info("make proxy tunnel fail");
         deleteUser(rnpm.UserId);
     }
 }
@@ -726,6 +780,7 @@ void Server::deleteUser(int fd)
     close(fd);
     m_reactor.removeFileEvent(fd, EVENT_WRITABLE | EVENT_READABLE);
     printf("deleted user:%d\n", fd);
+    m_pLogger->info("deleted user:%d", fd);
 }
 
 void Server::setPassword(const char *password)
@@ -739,6 +794,7 @@ void Server::setPassword(const char *password)
 void Server::deleteClient(int fd)
 {
     printf("client gone!\n");
+    m_pLogger->info("client gone!");
     m_reactor.removeFileEvent(fd, EVENT_READABLE | EVENT_WRITABLE);
     m_mapClients.erase(fd);
     close(fd);
@@ -756,6 +812,7 @@ void Server::deleteClient(int fd)
             close(pfd);
             it = m_mapProxy.erase(it);
             printf("delete proxy conn with this client! %d\n", pfd);
+            m_pLogger->info("delete proxy conn with this client! %d", pfd);
         }
         else
         {
@@ -773,6 +830,7 @@ void Server::deleteClient(int fd)
             close(ufd);
             it = m_mapUsers.erase(it);
             printf("delete user conn with this client! %d\n", ufd);
+            m_pLogger->info("delete user conn with this client! %d", ufd);
         }
         else
         {
@@ -789,6 +847,7 @@ void Server::deleteClient(int fd)
             close(remoteListenFd);
             it = m_mapListen.erase(it);
             printf("delete remote listen fd with this client! %d\n", remoteListenFd);
+            m_pLogger->info("delete remote listen fd with this client! %d\n", remoteListenFd);
         }
         else
         {
@@ -820,5 +879,6 @@ void Server::setLogger(Logger *logger)
 
 void Server::startEventLoop()
 {
+    m_pLogger->info("server running...");
     m_reactor.eventLoop(EVENT_LOOP_FILE_EVENT | EVENT_LOOP_TIMER_EVENT);
 }

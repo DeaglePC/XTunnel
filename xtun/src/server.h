@@ -106,6 +106,7 @@ private:
 
   void processNewProxy(ReplyNewProxyMsg rnpm);  // 处理新代理连接
   int findClientfdByPort(unsigned short port);  // 通过对外端口查找属于哪个客户端
+  bool isExistsPort(unsigned short port);       // 检查对外端口是不是已经被其他客户端使用了，如果使用了，则丢弃该客户端
 
   int listenRemotePort(int cfd);                // 监听cfd客户端的远程端口
   void proxyAcceptProc(int fd, int mask);       // 代理端口收到新连接的处理

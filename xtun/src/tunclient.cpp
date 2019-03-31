@@ -12,6 +12,7 @@ Client *g_pClient = nullptr;
 std::string g_strCfgFileName;
 const char ERR_PARAM[] = "param is not illage\n";
 Logger g_logger;
+bool g_isBackground = false; // 是否后台运行
 
 struct ConfigServer
 {
@@ -140,6 +141,7 @@ int main(int argc, char *argv[])
             g_strCfgFileName = std::string(optarg);
             break;
         case 'd':
+            g_isBackground = true;
             break;
         default:
             printf(ERR_PARAM);
@@ -147,12 +149,18 @@ int main(int argc, char *argv[])
             break;
         }
     }
-
+    
     readConfig(g_strCfgFileName.c_str());
+    if (g_isBackground)
+    {
+        daemon(0, 0);
+    }
 
     g_logger.setLogPath(g_cfg.logPath.c_str());
     g_logger.setAppName("xtunc");
     g_logger.info("---------------------");
+    g_logger.warn("---------------------");
+    g_logger.err("---------------------");
 
     g_pClient = new Client(g_cfg.serverIp.c_str(), g_cfg.serverPort);
     if (g_pClient == nullptr)

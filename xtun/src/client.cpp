@@ -34,7 +34,7 @@ Client::~Client()
         m_reactor.removeFileEvent(it.first, EVENT_READABLE | EVENT_WRITABLE);
         close(it.first);
     }
-    m_pLogger->info("----exit client...-----");
+    m_pLogger->info("exit client...");
 }
 
 int Client::connectServer()
@@ -560,12 +560,21 @@ void Client::runClient()
     m_pLogger->info("connect server ok");
 
     ret = authServer();
-    if (ret == -1)
+    if (ret == AUTH_ERR)
     {
         m_pLogger->err("auth err");
         return;
     }
-    m_pLogger->info("auth ok");
+    else if(ret == AUTH_WRONG)
+    {
+        m_pLogger->info("auth fail, wrong password");
+        return;
+    }
+    else if(ret == AUTH_UNKNOW)
+    {
+        m_pLogger->info("auth fail, know reply");
+        return;
+    }
 
     ret = sendPorts();
     if (ret == -1)
