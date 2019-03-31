@@ -215,7 +215,7 @@ int Client::checkHeartbeatTimerProc(long long id)
     if (subTimeStamp > m_maxServerTimeout)
     {
         printf("server timeout %ldms\n", subTimeStamp);
-        m_pLogger->err("server timeout %ldms", subTimeStamp);
+        m_pLogger->info("server timeout %ldms", subTimeStamp);
         exit(-1);
     }
     printf("check heartbeat ok!%ld\n", subTimeStamp);
