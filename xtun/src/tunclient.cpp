@@ -60,9 +60,38 @@ void readConfig(const char* configFile)
     }
 }
 
+void sigShutdownHandler(int sig)
+{
+    switch (sig)
+    {
+    case SIGINT:
+    case SIGTERM:
+        if(g_pClient != nullptr)
+            delete g_pClient;
+        break;
+    default:
+        break;
+    }
+    exit(0);
+}
+
+/*
+ * 设置处理信号的函数
+ */
+void setupSignalHandlers()
+{
+    struct sigaction act;
+    sigemptyset(&act.sa_mask);
+    act.sa_flags = 0;
+    act.sa_handler = sigShutdownHandler;
+    sigaction(SIGTERM, &act, NULL);
+    sigaction(SIGINT, &act, NULL);
+}
+
 int main(int argc, char const *argv[])
 {
     signal(SIGPIPE, SIG_IGN);
+    setupSignalHandlers();
     
     readConfig("tc.ini");
 
