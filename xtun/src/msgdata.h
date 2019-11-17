@@ -1,6 +1,10 @@
 #ifndef __MSGDATA_H__
 #define __MSGDATA_H__
 
+#include "aes.h"
+#include "cryptor.h"
+
+
 enum MSGTYPE
 {
     MSGTYPE_HEARTBEAT = 1, // 心跳
@@ -27,7 +31,31 @@ struct ReplyNewProxyMsg
     bool IsSuccess;
 };
 
+struct DataHeader
+{
+    uint32_t dataLen;
+    uint8_t iv[AES_BLOCKLEN];
+    DataHeader() : dataLen(0) {}
+
+    uint32_t ensureTargetDataSize()
+    {
+        return dataLen > 0 ? dataLen : sizeof(DataHeader);
+    }
+};
+
+
 const char HEARTBEAT_CLIENT_MSG[] = "ping";
 const char HEARTBEAT_SERVER_MSG[] = "pong";
+
+class MsgUtil
+{
+private:
+public:
+    MsgUtil();
+    ~MsgUtil();
+
+    static uint32_t ensureCryptedDataSize(uint32_t dataLen);
+    static uint32_t packCryptedData(Cryptor* cryptor, uint8_t *buf, uint8_t *data, uint32_t dataSize);
+};
 
 #endif

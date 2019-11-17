@@ -118,29 +118,25 @@ int Reactor::processEvents(int flag)
         printf("tvp NULL");
     else
     {
-        printf("----timeval: %ld %ld\n", tvp->tv_sec, tvp->tv_usec);
+        // printf("----timeval: %ld %ld\n", tvp->tv_sec, tvp->tv_usec);
     }
 
-    printf("poll event!\n");
+    // printf("poll event!\n");
     ret = m_demultiplexer->pollEvent(m_fileEvents, m_firedEvents, tvp);
 
-    printf("poll event done! %d\n", ret);
+    // printf("poll event done! %d\n", ret);
 
     for (int i = 0; i < ret; i++)
     {
         int fd = m_firedEvents[i].fd;
         int mask = m_firedEvents[i].mask;
-        if (m_fileEvents.find(fd) == m_fileEvents.end())
-        {
-            printf("%d: is not exists,mask:%d\n", fd, mask);
-            continue;
-        }
-        if (mask & EVENT_READABLE)
+
+        if (m_fileEvents.find(fd) != m_fileEvents.end() && mask & EVENT_READABLE)
         {
             m_fileEvents[fd].rFileProc(fd, mask);
             processed++;
         }
-        if (mask & EVENT_WRITABLE)
+        if (m_fileEvents.find(fd) != m_fileEvents.end() && mask & EVENT_WRITABLE)
         {
             m_fileEvents[fd].wFileProc(fd, mask);
             processed++;

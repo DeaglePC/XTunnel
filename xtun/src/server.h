@@ -1,37 +1,41 @@
 #ifndef __SERVER_H__
 #define __SERVER_H__
 
-#include "tnet.h"
-#include "reactor.h"
-#include "msgdata.h"
-#include "logger.h"
 #include <cstdio>
 #include <unordered_map>
 #include <vector>
 
+#include "tnet.h"
+#include "reactor.h"
+#include "msgdata.h"
+#include "logger.h"
+#include "cryptor.h"
+
 const unsigned short DEFAULT_PORT = 10086;
 const unsigned short DEFAULT_PROXY_PORT = 10001;
+
 const size_t AUTH_BUF_SIZE = 32;
 const size_t MAX_BUF_SIZE = 1024;
+
 const int HEARTBEAT_INTERVAL_MS = 1000;      // 每次心跳的间隔时间
 const long DEFAULT_SERVER_TIMEOUT_MS = 5000; // 默认5秒没收到服务端的心跳表示服务端不在
+
 extern const char HEARTBEAT_CLIENT_MSG[];
 extern const char HEARTBEAT_SERVER_MSG[];
 
 struct ClientInfo
 {
-  int authRecvNum;
-  char authBuf[AUTH_BUF_SIZE];
+  DataHeader header;
 
   MsgData msgData;
   int recvNum;
   int recvSize;
-  char recvBuf[MAX_BUF_SIZE];
+  char recvBuf[MAX_BUF_SIZE + AES_BLOCKLEN];  // AES_BLOCKLEN is for aes padding size
   long long lastHeartbeat; // 上次收到心跳的时间戳，如果是-1，表示还没初始化客户端，无需检测
 
   std::vector<unsigned short> remotePorts;
 
-  ClientInfo() : authRecvNum(0), recvNum(0), lastHeartbeat(-1) {}
+  ClientInfo() : recvNum(0), lastHeartbeat(-1) {}
 };
 using ClientInfoMap = std::unordered_map<int, ClientInfo>;
 
@@ -78,6 +82,7 @@ private:
   char m_serverPassword[AUTH_BUF_SIZE];
 
   Logger *m_pLogger;
+  Cryptor *m_pCryptor;
 
   long long m_heartbeatTimerId;
 
@@ -121,6 +126,8 @@ private:
   void deleteClient(int fd);
   void deleteUser(int fd);
   void deleteProxyConn(int fd);
+
+  void initCryptor();
 
 public:
   Server(unsigned short port = DEFAULT_PORT, unsigned short proxyPort = DEFAULT_PROXY_PORT);

@@ -3,14 +3,18 @@
 #include <netinet/in.h>
 #include <vector>
 #include <unordered_map>
+
 #include "reactor.h"
 #include "msgdata.h"
 #include "logger.h"
+#include "cryptor.h"
 
 const size_t PW_MAX_LEN = 32; // len of md5
 const size_t MAX_BUF_SIZE = 1024;
+
 const int HEARTBEAT_INTERVAL_MS = 1000; // 每次心跳的间隔时间
 const long DEFAULT_SERVER_TIMEOUT_MS = 5000; // 默认5秒没收到服务端的心跳表示服务端不在线
+
 extern const char HEARTBEAT_CLIENT_MSG[];
 extern const char HEARTBEAT_SERVER_MSG[];
 
@@ -26,6 +30,7 @@ enum AUTH_STATUS
   AUTH_ERR = -1,  // 程序出错
   AUTH_OK = 0,    // 密码正确
   AUTH_WRONG = 1, // 密码错误
+  SEND_PW_OK,     // 发送密码成功
   AUTH_UNKNOW     // 服务器返回了未知数据
 };
 
@@ -81,6 +86,8 @@ private:
   ProxyConnInfoMap m_mapProxyConn;
   LocalConnInfoMap m_mapLocalConn;
 
+  Cryptor *m_pCryptor;
+
   void clientReadProc(int fd, int mask);
   int sendPorts();
   void porcessMsgBuf();
@@ -102,7 +109,12 @@ private:
   void deleteLocalConn(int fd);
 
   int connectServer();
+
+  int sendAuthPassword();
+  int checkAuthResult();
   int authServer();
+
+  void initCryptor();
 
 public:
   Client(const char *sip, unsigned short sport);

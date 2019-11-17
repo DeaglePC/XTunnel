@@ -34,6 +34,11 @@ Client::~Client()
         m_reactor.removeFileEvent(it.first, EVENT_READABLE | EVENT_WRITABLE);
         close(it.first);
     }
+
+    if(m_pCryptor)
+    {
+        delete m_pCryptor;
+    }
     m_pLogger->info("exit client...");
 }
 
@@ -47,22 +52,20 @@ int Client::connectServer()
     return 0;
 }
 
-/*
- * 认证过程：
- * client->server: md5(password), len=32bytes
- * server->client: Y/N, len=1byte
- * return: -1: err, 0: ok, 1: wrong password
- */
-int Client::authServer()
+int Client::sendAuthPassword()
 {
     int ret, sendCnt = 0;
+
+    uint8_t buf[MsgUtil::ensureCryptedDataSize(PW_MAX_LEN)];
+    uint32_t dataLen = MsgUtil::packCryptedData(m_pCryptor, buf, (uint8_t*)m_password, PW_MAX_LEN);
+
     while (1)
     {
-        ret = send(m_clientSocketFd, m_password + sendCnt, PW_MAX_LEN - sendCnt, 0);
+        ret = send(m_clientSocketFd, buf + sendCnt, dataLen - sendCnt, 0);
         if (ret > 0)
         {
             sendCnt += ret;
-            if (sendCnt == PW_MAX_LEN)
+            if (sendCnt == dataLen)
             {
                 break;
             }
@@ -78,8 +81,15 @@ int Client::authServer()
             return AUTH_ERR;
         }
     }
-    printf("send password ok\n");
+
+    return SEND_PW_OK;
+}
+
+int Client::checkAuthResult()
+{
+    int ret;
     char recvBuf;
+
     while (1)
     {
         ret = recv(m_clientSocketFd, &recvBuf, sizeof(recvBuf), 0);
@@ -105,6 +115,23 @@ int Client::authServer()
             return AUTH_ERR;
         }
     }
+}
+
+/*
+ * 认证过程：
+ * client->server: md5(password), len=32bytes
+ * server->client: Y/N, len=1byte
+ * return: -1: err, 0: ok, 1: wrong password
+ */
+int Client::authServer()
+{
+    if (sendAuthPassword() != SEND_PW_OK)
+    {
+        return AUTH_ERR;
+    }
+    printf("send password ok\n");
+
+    return checkAuthResult();
 }
 
 int Client::sendPorts()
@@ -534,9 +561,21 @@ void Client::setProxyConfig(const std::vector<ProxyInfo> &pcs)
     }
 }
 
+void Client::initCryptor()
+{
+    m_pCryptor = new Cryptor(CRYPT_CBC, (uint8_t*)m_password);
+    if(m_pCryptor == nullptr)
+    {
+        m_pLogger->err("new Cryptor object error");
+        exit(-1);
+    }
+}
+
 void Client::setPassword(const char *password)
 {
     strncpy(m_password, MD5(password).toStr().c_str(), PW_MAX_LEN);
+
+    initCryptor();
 }
 
 void Client::setLogger(Logger* logger)
@@ -575,6 +614,10 @@ void Client::runClient()
         m_pLogger->info("auth fail, know reply");
         return;
     }
+
+    // debug
+    printf("===ok===\n");
+    system("pause");
 
     ret = sendPorts();
     if (ret == -1)

@@ -20,6 +20,7 @@ Server::~Server()
     {
         close(m_proxySocketFd);
     }
+
     std::vector<int> clients;
     for (const auto &it : m_mapClients)
     {
@@ -29,6 +30,7 @@ Server::~Server()
     {
         deleteClient(c);
     }
+
     m_pLogger->info("exit server...");
 }
 
@@ -41,6 +43,7 @@ int Server::listenControl()
         m_pLogger->err("make server socker err!");
         return -1;
     }
+
     int ret = tnet::tcp_listen(m_serverSocketFd, m_serverPort);
     if (ret == NET_ERR)
     {
@@ -48,10 +51,18 @@ int Server::listenControl()
         m_pLogger->err("server listen err!");
         return -1;
     }
+
     tnet::non_block(m_serverSocketFd);
-    m_reactor.registFileEvent(m_serverSocketFd, EVENT_READABLE,
-                              std::bind(&Server::serverAcceptProc,
-                                        this, std::placeholders::_1, std::placeholders::_2));
+    m_reactor.registFileEvent(
+        m_serverSocketFd,
+        EVENT_READABLE,
+        std::bind(
+            &Server::serverAcceptProc,
+            this,
+            std::placeholders::_1,
+            std::placeholders::_2
+        )
+    );
 }
 
 int Server::listenProxy()
@@ -63,6 +74,7 @@ int Server::listenProxy()
         m_pLogger->err("make proxy socker err!");
         return -1;
     }
+
     int ret = tnet::tcp_listen(m_proxySocketFd, m_proxyPort);
     if (ret == NET_ERR)
     {
@@ -70,9 +82,16 @@ int Server::listenProxy()
         m_pLogger->err("server listen err!");
         return -1;
     }
-    m_reactor.registFileEvent(m_proxySocketFd, EVENT_READABLE,
-                              std::bind(&Server::proxyAcceptProc,
-                                        this, std::placeholders::_1, std::placeholders::_2));
+
+    m_reactor.registFileEvent(
+        m_proxySocketFd, EVENT_READABLE,
+        std::bind(
+            &Server::proxyAcceptProc,
+            this,
+            std::placeholders::_1,
+            std::placeholders::_2
+        )
+    );
 }
 
 void Server::initServer()
@@ -87,8 +106,14 @@ void Server::initServer()
     {
         exit(-1);
     }
-    m_heartbeatTimerId = m_reactor.registTimeEvent(HEARTBEAT_INTERVAL_MS,
-                                                   std::bind(&Server::checkHeartbeatTimerProc, this, std::placeholders::_1));
+    m_heartbeatTimerId = m_reactor.registTimeEvent(
+        HEARTBEAT_INTERVAL_MS,
+        std::bind(
+            &Server::checkHeartbeatTimerProc,
+            this,
+            std::placeholders::_1
+        )
+    );
 }
 
 void Server::proxyAcceptProc(int fd, int mask)
@@ -339,49 +364,80 @@ void Server::serverAcceptProc(int fd, int mask)
         }
         printf("serverAcceptProc new conn from %s:%d\n", ip, port);
         m_pLogger->info("new client connection from %s:%d", ip, port);
+
         m_mapClients[connfd] = ClientInfo();
         tnet::non_block(connfd);
-        m_reactor.registFileEvent(connfd, EVENT_READABLE,
-                                  std::bind(&Server::clientAuthProc,
-                                            this, std::placeholders::_1, std::placeholders::_2));
+        m_reactor.registFileEvent(
+            connfd, 
+            EVENT_READABLE,
+            std::bind(
+                &Server::clientAuthProc,
+                this,
+                std::placeholders::_1, 
+                std::placeholders::_2
+            )
+        );
     }
 }
 
-void Server::clientAuthProc(int fd, int mask)
+void Server::clientAuthProc(int cfd, int mask)
 {
-    if (mask & EVENT_READABLE)
+    if (!(mask & EVENT_READABLE))
     {
-        int ret;
-        ret = recv(fd, m_mapClients[fd].authBuf + m_mapClients[fd].authRecvNum,
-                   AUTH_BUF_SIZE - m_mapClients[fd].authRecvNum, MSG_DONTWAIT);
-        if (ret == -1)
+        return;
+    }
+
+    int ret;
+    // there is not header init if data len is 0
+    size_t targetSize = m_mapClients[cfd].header.ensureTargetDataSize();
+
+    ret = recv(cfd, m_mapClients[cfd].recvBuf + m_mapClients[cfd].recvNum,
+                targetSize - m_mapClients[cfd].recvNum, MSG_DONTWAIT);
+    
+    if (ret == -1)
+    {
+        if (errno != EAGAIN && EAGAIN != EWOULDBLOCK)
         {
-            if (errno != EAGAIN && EAGAIN != EWOULDBLOCK)
+            printf("recv client auth msg err: %d\n", errno);
+            m_pLogger->err("recv client auth msg err: %d\n", errno);
+        }
+        return;
+    }
+    else if (ret == 0)
+    {
+        deleteClient(cfd);
+    }
+    else if (ret > 0)
+    {
+        m_mapClients[cfd].recvNum += ret;
+
+        if (m_mapClients[cfd].recvNum == targetSize)
+        {
+            m_mapClients[cfd].recvNum = 0;
+
+            // targetSize = header size or data size
+            if (targetSize == sizeof(DataHeader))
             {
-                printf("recv client auth msg err: %d\n", errno);
-                m_pLogger->err("recv client auth msg err: %d\n", errno);
+                memcpy(&m_mapClients[cfd].header, m_mapClients[cfd].recvBuf, targetSize);
             }
-            return;
-        }
-        else if (ret == 0)
-        {
-            deleteClient(fd);
-        }
-        else if (ret > 0)
-        {
-            m_mapClients[fd].authRecvNum += ret;
-            if (m_mapClients[fd].authRecvNum == AUTH_BUF_SIZE)
+            else
             {
-                if (strncmp(m_serverPassword, m_mapClients[fd].authBuf, sizeof(m_serverPassword)) == 0)
+                uint32_t realDataSize = m_pCryptor->decrypt(
+                    m_mapClients[cfd].header.iv, 
+                    (uint8_t*)m_mapClients[cfd].recvBuf, 
+                    targetSize
+                );
+
+                if (strncmp(m_serverPassword, m_mapClients[cfd].recvBuf, sizeof(m_serverPassword)) == 0)
                 {
-                    m_reactor.registFileEvent(fd, EVENT_WRITABLE,
-                                              std::bind(&Server::replyClientAuthProcY,
+                    m_reactor.registFileEvent(cfd, EVENT_WRITABLE,
+                                                std::bind(&Server::replyClientAuthProcY,
                                                         this, std::placeholders::_1, std::placeholders::_2));
                 }
                 else
                 {
-                    m_reactor.registFileEvent(fd, EVENT_WRITABLE,
-                                              std::bind(&Server::replyClientAuthProcN,
+                    m_reactor.registFileEvent(cfd, EVENT_WRITABLE,
+                                                std::bind(&Server::replyClientAuthProcN,
                                                         this, std::placeholders::_1, std::placeholders::_2));
                 }
             }
@@ -522,9 +578,9 @@ void Server::recvClientProxyPorts(int fd, int mask)
 */
 bool Server::isExistsPort(unsigned short port)
 {
-    for(const auto& it: m_mapListen)
+    for (const auto &it : m_mapListen)
     {
-        if(it.second.port == port)
+        if (it.second.port == port)
         {
             return true;
         }
@@ -632,7 +688,7 @@ void Server::recvClientDataProc(int fd, int mask)
 {
     int ret = recv(fd, m_mapClients[fd].recvBuf + m_mapClients[fd].recvNum,
                    m_mapClients[fd].recvSize - m_mapClients[fd].recvNum, MSG_DONTWAIT);
-    printf("recvClientDataProc recv:%d\n", ret);
+    // printf("recvClientDataProc recv:%d\n", ret);
     if (ret == -1)
     {
         if (errno != EAGAIN && EAGAIN != EWOULDBLOCK)
@@ -783,12 +839,24 @@ void Server::deleteUser(int fd)
     m_pLogger->info("deleted user:%d", fd);
 }
 
+void Server::initCryptor()
+{
+    m_pCryptor = new Cryptor(CRYPT_CBC, (uint8_t*)m_serverPassword);
+    if(m_pCryptor == nullptr)
+    {
+        m_pLogger->err("new Cryptor object error");
+        exit(-1);
+    }
+}
+
 void Server::setPassword(const char *password)
 {
     if (password != NULL)
     {
         strncpy(m_serverPassword, MD5(password).toStr().c_str(), sizeof(m_serverPassword)); // md5加密
     }
+
+    initCryptor();
 }
 
 void Server::deleteClient(int fd)
