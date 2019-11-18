@@ -430,73 +430,98 @@ void Server::clientAuthProc(int cfd, int mask)
 
                 if (strncmp(m_serverPassword, m_mapClients[cfd].recvBuf, sizeof(m_serverPassword)) == 0)
                 {
-                    m_reactor.registFileEvent(cfd, EVENT_WRITABLE,
-                                                std::bind(&Server::replyClientAuthProcY,
-                                                        this, std::placeholders::_1, std::placeholders::_2));
+                    processClientAuthResult(cfd, true);
                 }
                 else
                 {
-                    m_reactor.registFileEvent(cfd, EVENT_WRITABLE,
-                                                std::bind(&Server::replyClientAuthProcN,
-                                                        this, std::placeholders::_1, std::placeholders::_2));
+                    processClientAuthResult(cfd, false);
                 }
             }
         }
     }
 }
 
-void Server::replyClientAuthProcY(int fd, int mask)
+void Server::processClientAuthResult(int cfd, bool isGood)
 {
-    if (mask & EVENT_WRITABLE)
-    {
-        replyClientAuth(fd, true);
-    }
-}
-
-void Server::replyClientAuthProcN(int fd, int mask)
-{
-    if (mask & EVENT_WRITABLE)
-    {
-        replyClientAuth(fd, false);
-    }
-}
-
-void Server::replyClientAuth(int fd, bool isGood)
-{
-    char buf;
+    char replyMsg;
     if (isGood)
     {
-        buf = 'Y';
+        replyMsg = 'Y';
+        m_mapClients[cfd].status = CLIENT_STATUS_PW_OK;
     }
     else
     {
-        buf = 'N';
+        replyMsg = 'N';
+        m_mapClients[cfd].status = CLIENT_STATUS_PW_WRONG;
     }
-    int len = sizeof(buf);
-    int ret = send(fd, &buf, len, MSG_DONTWAIT);
+
+    m_mapClients[cfd].sendSize = MsgUtil::packCryptedData(
+        m_pCryptor, 
+        (uint8_t*)m_mapClients[cfd].sendBuf, 
+        (uint8_t*)replyMsg,
+        sizeof(replyMsg)
+    );
+
+    m_reactor.registFileEvent(
+        cfd, 
+        EVENT_WRITABLE,
+        std::bind(
+            &Server::replyClientAuthProc,
+            this, 
+            std::placeholders::_1, 
+            std::placeholders::_2
+        )
+    );
+}
+
+void Server::replyClientAuthProc(int cfd, int mask)
+{
+    int ret = send(cfd, &m_mapClients[cfd].sendBuf, m_mapClients[cfd].sendSize, MSG_DONTWAIT);
+
     if (ret == -1)
     {
         if (errno != EAGAIN && EAGAIN != EWOULDBLOCK)
         {
             printf("replyClientAuth err: %d\n", errno);
             m_pLogger->err("replyClientAuth err: %d\n", errno);
-            deleteClient(fd);
+            deleteClient(cfd);
         }
     }
     else if (ret > 0)
     {
-        m_reactor.removeFileEvent(fd, EVENT_WRITABLE);
-        if (!isGood)
+        m_mapClients[cfd].sendSize -= ret;
+
+        if (m_mapClients[cfd].sendSize == 0)
         {
-            printf("pw not good, delete client...\n");
-            m_pLogger->info("password not good, delete client...");
-            deleteClient(fd);
+            if (m_mapClients[cfd].status == CLIENT_STATUS_PW_OK)
+            {
+                m_reactor.removeFileEvent(cfd, EVENT_WRITABLE);
+                m_reactor.registFileEvent(
+                    cfd, 
+                    EVENT_READABLE,
+                    std::bind(
+                        &Server::recvClientProxyPorts,
+                        this, 
+                        std::placeholders::_1, 
+                        std::placeholders::_2
+                    )
+                );
+            }
+            else if(m_mapClients[cfd].status == CLIENT_STATUS_PW_WRONG)
+            {
+                printf("pw not good, delete client...\n");
+                m_pLogger->info("password not good, delete client...");
+                
+                deleteClient(cfd);
+            }
         }
         else
         {
-            m_reactor.registFileEvent(fd, EVENT_READABLE,
-                                      std::bind(&Server::recvClientProxyPorts,
-                                                this, std::placeholders::_1, std::placeholders::_2));
+            memmove(
+                m_mapClients[cfd].sendBuf, 
+                m_mapClients[cfd].sendBuf + ret, 
+                m_mapClients[cfd].sendSize
+            );
         }
     }
 }

@@ -23,19 +23,32 @@ const long DEFAULT_SERVER_TIMEOUT_MS = 5000; // 默认5秒没收到服务端的�
 extern const char HEARTBEAT_CLIENT_MSG[];
 extern const char HEARTBEAT_SERVER_MSG[];
 
+enum ClientStatus
+{
+  CLIENT_STATUS_CONNECTED,
+  CLIENT_STATUS_PW_OK,
+  CLIENT_STATUS_PW_WRONG,
+};
+
 struct ClientInfo
 {
   DataHeader header;
 
   MsgData msgData;
-  int recvNum;
-  int recvSize;
+  size_t recvNum;
+  size_t recvSize;
   char recvBuf[MAX_BUF_SIZE + AES_BLOCKLEN];  // AES_BLOCKLEN is for aes padding size
+  
+  size_t sendSize;
+  char sendBuf[MAX_BUF_SIZE + AES_BLOCKLEN];
+
+  ClientStatus status;
+  
   long long lastHeartbeat; // 上次收到心跳的时间戳，如果是-1，表示还没初始化客户端，无需检测
 
   std::vector<unsigned short> remotePorts;
 
-  ClientInfo() : recvNum(0), lastHeartbeat(-1) {}
+  ClientInfo() : recvNum(0), sendSize(0), lastHeartbeat(-1), status(CLIENT_STATUS_CONNECTED) {}
 };
 using ClientInfoMap = std::unordered_map<int, ClientInfo>;
 
@@ -95,10 +108,11 @@ private:
   int listenProxy();   // 监听代理端口，负责客户端建立代理连接
   void initServer();
   void serverAcceptProc(int fd, int mask);
+
   void clientAuthProc(int fd, int mask);       // 1.接收客户端的认证消息
-  void replyClientAuthProcY(int fd, int mask); // 回复客户端认证成功
-  void replyClientAuthProcN(int fd, int mask); // 回复认证失败
-  void replyClientAuth(int fd, bool isGood);   // 回复认证结果
+  void processClientAuthResult(int cfd, bool isGood);
+  void replyClientAuthProc(int cfd, int mask);   // 回复认证结果
+
   void recvClientProxyPorts(int fd, int mask); // 2.接收客户端发来的需要监听的外网端口
   void recvClientDataProc(int fd, int mask);   // 正常建立链接后，客户端和服务器交互的数据处理
   void processClientBuf(int cfd);
