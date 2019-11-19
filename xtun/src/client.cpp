@@ -168,25 +168,39 @@ int Client::sendPorts()
     {
         return 0;
     }
+
     unsigned short ports[portNum + 1]; // [0]: 存放端口的数量，之后存放端口
     ports[0] = (unsigned short)portNum;
     for (int i = 0; i < portNum; i++)
     {
         ports[i + 1] = m_configProxy[i].remotePort;
     }
-    int ret = send(m_clientSocketFd, ports, sizeof(ports), 0);
+
+    size_t dataSize = sizeof(ports);
+    uint8_t buf[MsgUtil::ensureCryptedDataSize(dataSize)];
+    uint32_t cryptedDataLen = MsgUtil::packCryptedData(m_pCryptor, buf, (uint8_t*)ports, dataSize);
+
+    int ret = send(m_clientSocketFd, buf, cryptedDataLen, 0); // block
     if (ret == -1)
     {
         printf("sendPorts err: %d\n", errno);
         m_pLogger->err("sendPorts err: %d\n", errno);
         return -1;
     }
-    else if (ret > 0)
+    else if (ret == cryptedDataLen)
     {
         printf("sendPorts num: %ld\n", portNum);
         m_pLogger->info("sendPorts num: %ld", portNum);
         return portNum;
     }
+    else
+    {
+        // should be never happen
+        printf("sendPorts unknown error: %d\n", errno);
+        m_pLogger->err("sendPorts unknown error: %d\n", errno);
+        return -1;
+    }
+    
 }
 
 void Client::clientReadProc(int fd, int mask)
