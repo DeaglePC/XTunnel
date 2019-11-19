@@ -88,24 +88,38 @@ int Client::sendAuthPassword()
 int Client::checkAuthResult()
 {
     int ret;
-    char recvBuf;
+    DataHeader header;
+    uint8_t recvBuf[sizeof(DataHeader) + AES_BLOCKLEN];
+    size_t targetSize, recvNum = 0;
 
     while (1)
     {
-        ret = recv(m_clientSocketFd, &recvBuf, sizeof(recvBuf), 0);
-        if (ret > 0)
+        targetSize = header.ensureTargetDataSize();
+        ret = recv(m_clientSocketFd, recvBuf, targetSize, 0);  // block
+        
+        if (ret == targetSize)
         {
-            if (recvBuf == 'Y')
+            if (targetSize == sizeof(DataHeader))
             {
-                return AUTH_OK;
-            }
-            else if (recvBuf == 'N')
-            {
-                return AUTH_WRONG;
+                memcpy(&header, recvBuf, targetSize);
             }
             else
             {
-                return AUTH_UNKNOW;
+                // shoud be sizeof(AUTH_TOKEN), if password is wrong, this value is a random number
+                uint32_t realDataSize = m_pCryptor->decrypt(
+                    header.iv,
+                    recvBuf,
+                    targetSize
+                );
+
+                if (!memcmp(AUTH_TOKEN, recvBuf, sizeof(AUTH_TOKEN)))
+                {
+                    return AUTH_OK;
+                }
+                else
+                {
+                    return AUTH_WRONG;
+                }
             }
         }
         else if (ret == -1)
@@ -113,6 +127,19 @@ int Client::checkAuthResult()
             printf("authServer recv err: %d\n", errno);
             m_pLogger->err("authServer recv err: %d", errno);
             return AUTH_ERR;
+        }
+        else if (ret == 0)
+        {
+            printf("authServer server offline: %d\n", errno);
+            m_pLogger->err("authServer server offline: %d", errno);
+            return AUTH_UNKNOW;
+        }
+        else
+        {
+            // should never happen
+            printf("authServer unknown error: %d\n", errno);
+            m_pLogger->err("authServer unknown error: %d", errno);
+            return AUTH_UNKNOW;
         }
     }
 }

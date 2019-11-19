@@ -47,6 +47,8 @@ struct DataHeader
 const char HEARTBEAT_CLIENT_MSG[] = "ping";
 const char HEARTBEAT_SERVER_MSG[] = "pong";
 
+const char AUTH_TOKEN[] = "DGPJCY";
+
 class MsgUtil
 {
 private:

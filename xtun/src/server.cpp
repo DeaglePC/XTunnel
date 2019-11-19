@@ -443,23 +443,20 @@ void Server::clientAuthProc(int cfd, int mask)
 
 void Server::processClientAuthResult(int cfd, bool isGood)
 {
-    char replyMsg;
     if (isGood)
     {
-        replyMsg = 'Y';
         m_mapClients[cfd].status = CLIENT_STATUS_PW_OK;
     }
     else
     {
-        replyMsg = 'N';
         m_mapClients[cfd].status = CLIENT_STATUS_PW_WRONG;
     }
 
     m_mapClients[cfd].sendSize = MsgUtil::packCryptedData(
         m_pCryptor, 
         (uint8_t*)m_mapClients[cfd].sendBuf, 
-        (uint8_t*)replyMsg,
-        sizeof(replyMsg)
+        (uint8_t*)AUTH_TOKEN,
+        sizeof(AUTH_TOKEN)
     );
 
     m_reactor.registFileEvent(
@@ -476,6 +473,11 @@ void Server::processClientAuthResult(int cfd, bool isGood)
 
 void Server::replyClientAuthProc(int cfd, int mask)
 {
+    if (!(mask & EVENT_WRITABLE))
+    {
+        return;
+    }
+
     int ret = send(cfd, &m_mapClients[cfd].sendBuf, m_mapClients[cfd].sendSize, MSG_DONTWAIT);
 
     if (ret == -1)

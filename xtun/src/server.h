@@ -23,6 +23,8 @@ const long DEFAULT_SERVER_TIMEOUT_MS = 5000; // 默认5秒没收到服务端的�
 extern const char HEARTBEAT_CLIENT_MSG[];
 extern const char HEARTBEAT_SERVER_MSG[];
 
+extern const char AUTH_TOKEN[];
+
 enum ClientStatus
 {
   CLIENT_STATUS_CONNECTED,

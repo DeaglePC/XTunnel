@@ -76,5 +76,5 @@ uint32_t Cryptor::decrypt(uint8_t *iv, uint8_t *buf, uint32_t length)
         AES_CTR_xcrypt_buffer(&m_ctx, buf, length);
     }
 
-    return buf[length - 1];
+    return length - buf[length - 1];
 }
