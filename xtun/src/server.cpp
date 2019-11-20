@@ -380,13 +380,8 @@ void Server::serverAcceptProc(int fd, int mask)
     }
 }
 
-void Server::clientAuthProc(int cfd, int mask)
+void Server::clientSafeRecv(int cfd, std::function<void(int cfd, size_t dataSize)> callback)
 {
-    if (!(mask & EVENT_READABLE))
-    {
-        return;
-    }
-
     int ret;
     // there is not header init if data len is 0
     size_t targetSize = m_mapClients[cfd].header.ensureTargetDataSize();
@@ -398,8 +393,8 @@ void Server::clientAuthProc(int cfd, int mask)
     {
         if (errno != EAGAIN && EAGAIN != EWOULDBLOCK)
         {
-            printf("recv client auth msg err: %d\n", errno);
-            m_pLogger->err("recv client auth msg err: %d\n", errno);
+            printf("recv client data err: %d\n", errno);
+            m_pLogger->err("recv client data err: %d\n", errno);
         }
         return;
     }
@@ -428,16 +423,52 @@ void Server::clientAuthProc(int cfd, int mask)
                     targetSize
                 );
 
-                if (strncmp(m_serverPassword, m_mapClients[cfd].recvBuf, sizeof(m_serverPassword)) == 0)
-                {
-                    processClientAuthResult(cfd, true);
-                }
-                else
-                {
-                    processClientAuthResult(cfd, false);
-                }
+                // if recv all done, we callback
+                callback(cfd, realDataSize);
+
+                // remember init datalen for next recv
+                m_mapClients[cfd].header.dataLen = 0;
             }
         }
+    }
+}
+
+void Server::clientAuthProc(int cfd, int mask)
+{
+    if (!(mask & EVENT_READABLE))
+    {
+        return;
+    }
+
+    clientSafeRecv(
+        cfd, 
+        std::bind(
+            &Server::checkClientAuthResult, 
+            this, 
+            std::placeholders::_1, 
+            std::placeholders::_2
+        )
+    );
+}
+
+void Server::checkClientAuthResult(int cfd, size_t dataSize)
+{
+    if (dataSize != sizeof(m_serverPassword))
+    {
+        printf(
+            "encrpt ClientAuthResult data len not good! expect: %lu, infact: %lu\n", 
+            sizeof(m_serverPassword), dataSize
+        );
+        return;
+    }
+
+    if (strncmp(m_serverPassword, m_mapClients[cfd].recvBuf, sizeof(m_serverPassword)) == 0)
+    {
+        processClientAuthResult(cfd, true);
+    }
+    else
+    {
+        processClientAuthResult(cfd, false);
     }
 }
 
@@ -502,7 +533,7 @@ void Server::replyClientAuthProc(int cfd, int mask)
                     cfd, 
                     EVENT_READABLE,
                     std::bind(
-                        &Server::recvClientProxyPorts,
+                        &Server::recvClientProxyPortsProc,
                         this, 
                         std::placeholders::_1, 
                         std::placeholders::_2
@@ -528,91 +559,55 @@ void Server::replyClientAuthProc(int cfd, int mask)
     }
 }
 
-/**
- * 接收客户端发送的端口
-*/
-void Server::recvClientProxyPorts(int fd, int mask)
+void Server::recvClientProxyPortsProc(int cfd, int mask)
 {
-    // 还没有开始保存端口数据
-    if (m_mapClients[fd].remotePorts.size() == 0)
+    if (!(mask & EVENT_READABLE))
     {
-        size_t targetNum = sizeof(unsigned short); // 端口第一个元素存着端口的数量
-        int ret = recv(fd, m_mapClients[fd].recvBuf + m_mapClients[fd].recvNum,
-                       targetNum - m_mapClients[fd].recvNum, MSG_DONTWAIT);
-        if (ret > 0)
-        {
-            m_mapClients[fd].recvNum += ret;
-            if (m_mapClients[fd].recvNum == ret)
-            {
-                unsigned short portNum = 0;
-                memcpy(&portNum, m_mapClients[fd].recvBuf, targetNum);
-                if (portNum > 0)
-                {
-                    // 给存放端口的vector分配内存
-                    m_mapClients[fd].remotePorts.resize(portNum);
-                }
-                m_mapClients[fd].recvNum = 0;
-            }
-        }
-        else if (ret == 0)
-        {
-            deleteClient(fd);
-        }
-        else if (ret == -1)
-        {
-            if (errno != EAGAIN && EAGAIN != EWOULDBLOCK)
-            {
-                printf("recvClientProxyPorts err: %d\n", errno);
-                m_pLogger->err("recvClientProxyPorts err: %d", errno);
-                deleteClient(fd);
-            }
-        }
+        return;
     }
-    else
-    {
-        size_t targetNum = m_mapClients[fd].remotePorts.size() * sizeof(unsigned short);
-        int ret = recv(fd, m_mapClients[fd].recvBuf,
-                       sizeof(m_mapClients[fd].recvBuf), MSG_DONTWAIT);
-        if (ret > 0)
-        {
-            memcpy(&m_mapClients[fd].remotePorts[0] + m_mapClients[fd].recvNum,
-                   m_mapClients[fd].recvBuf, ret);
-            m_mapClients[fd].recvNum += ret;
-            if (m_mapClients[fd].recvNum == targetNum)
-            {
-                // init client
-                initClient(fd);
-            }
-        }
-        else if (ret == 0)
-        {
-            deleteClient(fd);
-        }
-        else if (ret == -1)
-        {
-            if (errno != EAGAIN && EAGAIN != EWOULDBLOCK)
-            {
-                printf("recvClientProxyPorts err: %d\n", errno);
-                m_pLogger->err("recvClientProxyPorts err: %d", errno);
-                deleteClient(fd);
-            }
-        }
-    }
+
+    clientSafeRecv(
+        cfd, 
+        std::bind(
+            &Server::checkClientProxyPortsResult, 
+            this, 
+            std::placeholders::_1, 
+            std::placeholders::_2
+        )
+    );
 }
 
-/**
- * 暂时无用
-*/
-bool Server::isExistsPort(unsigned short port)
+void Server::checkClientProxyPortsResult(int cfd, size_t dataSize)
 {
-    for (const auto &it : m_mapListen)
+    unsigned short portNum = 0;
+
+    // first 2bytes is the port number
+    memcpy(&portNum, m_mapClients[cfd].recvBuf, sizeof(portNum));
+    if (portNum <= 0)
     {
-        if (it.second.port == port)
-        {
-            return true;
-        }
+        deleteClient(cfd);
+        return;
     }
-    return false;
+
+    size_t portDataSize = portNum * sizeof(unsigned short);
+    if (dataSize != portDataSize + sizeof(portNum))
+    {
+        printf(
+            "encrpt ClientProxyPortsResult data len not good! expect: %lu, infact: %lu\n", 
+            portDataSize + sizeof(portNum), dataSize
+        );
+        return;
+    }
+
+    // alloc mem
+    m_mapClients[cfd].remotePorts.resize(portNum);
+    memcpy(
+        &m_mapClients[cfd].remotePorts[0], 
+        m_mapClients[cfd].recvBuf + sizeof(portNum), 
+        portDataSize
+    );
+    initClient(cfd);
+    printf("recv proxy ports success!\n");
 }
 
 void Server::initClient(int fd)

@@ -106,16 +106,25 @@ private:
   UserInfoMap m_mapUsers;
   ProxyConnInfoMap m_mapProxy;
 
+  // server init methods
   int listenControl(); // 监听服务器控制端口，负责新客户端接入
   int listenProxy();   // 监听代理端口，负责客户端建立代理连接
   void initServer();
   void serverAcceptProc(int fd, int mask);
 
+  void clientSafeRecv(int cfd, std::function<void(int cfd, size_t dataSize)> callback);
+
+  // auth methods
   void clientAuthProc(int fd, int mask);       // 1.接收客户端的认证消息
   void processClientAuthResult(int cfd, bool isGood);
+  void checkClientAuthResult(int cfd, size_t dataSize);
   void replyClientAuthProc(int cfd, int mask);   // 回复认证结果
 
-  void recvClientProxyPorts(int fd, int mask); // 2.接收客户端发来的需要监听的外网端口
+  // proxy ports methods
+  void checkClientProxyPortsResult(int cfd, size_t dataSize);
+  void recvClientProxyPortsProc(int cfd, int mask);
+
+  //void recvClientProxyPorts(int fd, int mask); // 2.接收客户端发来的需要监听的外网端口
   void recvClientDataProc(int fd, int mask);   // 正常建立链接后，客户端和服务器交互的数据处理
   void processClientBuf(int cfd);
   void userAcceptProc(int fd, int mask); // 接收user的连接
