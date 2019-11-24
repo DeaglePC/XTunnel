@@ -33,6 +33,7 @@
 
 # vscode
 .vscode
+.vs
 xtun/bin/tunclient
 xtun/bin/tunclient_g
 xtun/bin/tunserver

@@ -15,7 +15,7 @@ const unsigned short DEFAULT_PORT = 10086;
 const unsigned short DEFAULT_PROXY_PORT = 10001;
 
 const size_t AUTH_BUF_SIZE = 32;
-const size_t MAX_BUF_SIZE = 1024;
+const size_t MAX_BUF_SIZE = 1024 * 1024;
 
 const int HEARTBEAT_INTERVAL_MS = 1000;      // 每次心跳的间隔时间
 const long DEFAULT_SERVER_TIMEOUT_MS = 5000; // 默认5秒没收到服务端的心跳表示服务端不在
@@ -36,7 +36,6 @@ struct ClientInfo
 {
   DataHeader header;
 
-  MsgData msgData;
   size_t recvNum;
   size_t recvSize;
   char recvBuf[MAX_BUF_SIZE + AES_BLOCKLEN];  // AES_BLOCKLEN is for aes padding size
@@ -67,7 +66,7 @@ struct UserInfo
   int proxyFd;
 
   int sendSize; // 发送缓冲区现有数据
-  char sendBuf[MAX_BUF_SIZE];
+  char sendBuf[MAX_BUF_SIZE + AES_BLOCKLEN];
   UserInfo() : sendSize(0) {}
 };
 using UserInfoMap = std::unordered_map<int, UserInfo>;
@@ -76,12 +75,15 @@ struct ProxyConnInfo
 {
   int userFd;
 
+  DataHeader header;
+
   int recvNum;
   int recvSize;
-  char recvBuf[MAX_BUF_SIZE];
+  char recvBuf[MAX_BUF_SIZE + AES_BLOCKLEN];
 
   int sendSize;
-  char sendBuf[MAX_BUF_SIZE];
+  char sendBuf[MAX_BUF_SIZE + AES_BLOCKLEN];
+
   ProxyConnInfo() : sendSize(0), recvNum(0), recvSize(0) {}
 };
 using ProxyConnInfoMap = std::unordered_map<int, ProxyConnInfo>;
@@ -113,22 +115,27 @@ private:
   void serverAcceptProc(int fd, int mask);
 
   void clientSafeRecv(int cfd, std::function<void(int cfd, size_t dataSize)> callback);
+  void clitneSafeSend(int cfd, std::function<void(int cfd)> callback);
 
   // auth methods
   void clientAuthProc(int fd, int mask);       // 1.接收客户端的认证消息
   void processClientAuthResult(int cfd, bool isGood);
-  void checkClientAuthResult(int cfd, size_t dataSize);
+  void checkClientAuthResult(int cfd, size_t dataSize); // callback func
   void replyClientAuthProc(int cfd, int mask);   // 回复认证结果
+  void onReplyClientAuthDone(int cfd);  // callback func
 
   // proxy ports methods
   void checkClientProxyPortsResult(int cfd, size_t dataSize);
   void recvClientProxyPortsProc(int cfd, int mask);
 
-  //void recvClientProxyPorts(int fd, int mask); // 2.接收客户端发来的需要监听的外网端口
-  void recvClientDataProc(int fd, int mask);   // 正常建立链接后，客户端和服务器交互的数据处理
-  void processClientBuf(int cfd);
   void userAcceptProc(int fd, int mask); // 接收user的连接
   void sendClientNewProxy(int cfd, int ufd, unsigned short port);
+  void sendClientNewProxyProc(int cfd, int mask);   
+  void onSendClientNewProxyDone(int cfd); // callback
+
+  void recvClientDataProc(int fd, int mask);   // 正常建立链接后，客户端和服务器交互的数据处理
+  void processClientBuf(int cfd,  size_t dataSize);
+  
   void sendHeartbeat(int cfd);         // 回复心跳
   void updateClientHeartbeat(int cfd); // 更新客户端心跳时间
 
@@ -140,7 +147,10 @@ private:
 
   int listenRemotePort(int cfd);                // 监听cfd客户端的远程端口
   void proxyAcceptProc(int fd, int mask);       // 代理端口收到新连接的处理
+  void proxySafeRecv(int fd, std::function<void(int fd, size_t dataSize)> callback);
+  
   void proxyReadUserInfoProc(int fd, int mask); // 首次接收是和哪个user进行数据转发
+  void onProxyReadUserInfoDone(int fd, size_t dataSize);
 
   void proxyReadDataProc(int fd, int mask);  // 接收客户端代理通道发来的数据
   void proxyWriteDataProc(int fd, int mask); // 给客户端的代理通道发送数据

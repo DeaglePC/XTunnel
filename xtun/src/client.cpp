@@ -203,17 +203,21 @@ int Client::sendPorts()
     
 }
 
-void Client::clientReadProc(int fd, int mask)
+// send data to server
+void Client::serverSafeRecv(int sfd, std::function<void(size_t dataSize)> callback)
 {
-    int ret = recv(fd, m_clientData.buf + m_clientData.recvNum,
-                   m_clientData.recvSize - m_clientData.recvNum, MSG_DONTWAIT);
-    printf("recv:%d\n", ret);
+    int ret;
+    size_t targetSize = m_clientData.header.ensureTargetDataSize();
+
+    ret = recv(sfd, m_clientData.recvBuf + m_clientData.recvNum,
+                targetSize - m_clientData.recvNum, MSG_DONTWAIT);
+    
     if (ret == -1)
     {
         if (errno != EAGAIN && EAGAIN != EWOULDBLOCK)
         {
-            printf("clientReadProc err: %d\n", errno);
-            m_pLogger->err("clientReadProc err: %d", errno);
+            printf("serverSafeRecv err: %d\n", errno);
+            m_pLogger->err("serverSafeRecv err: %d", errno);
             return;
         }
     }
@@ -226,42 +230,104 @@ void Client::clientReadProc(int fd, int mask)
     else if (ret > 0)
     {
         m_clientData.recvNum += ret;
-        if (m_clientData.recvNum == m_clientData.recvSize)
+
+        if (m_clientData.recvNum == targetSize)
         {
-            porcessMsgBuf();
+            m_clientData.recvNum = 0;
+            
+            if (targetSize == sizeof(DataHeader))
+            {
+                memcpy(&m_clientData.header, m_clientData.recvBuf, targetSize);
+            }
+            else
+            {
+                uint32_t realDataSize = m_pCryptor->decrypt(
+                    m_clientData.header.iv, 
+                    (uint8_t*)m_clientData.recvBuf, 
+                    targetSize
+                );
+
+                // if recv all done, we callback
+                callback(realDataSize);
+
+                // remember init datalen for next recv
+                m_clientData.header.dataLen = 0;
+            }
         }
     }
 }
 
-void Client::porcessMsgBuf()
+void Client::serverSafeSend(int fd, std::function<void(int fd)> callback)
 {
-    // 解析结构体
-    if (m_clientData.msgData.type < 0)
-    {
-        memcpy(&m_clientData.msgData, m_clientData.buf, m_clientData.recvSize);
-        m_clientData.recvSize = m_clientData.msgData.size;
-        m_clientData.recvNum = 0;
-    }
-    else if (m_clientData.msgData.type == MSGTYPE_HEARTBEAT)
-    {
-        m_clientData.recvSize = sizeof(MsgData);
-        m_clientData.recvNum = 0;
-        m_clientData.msgData.type = -1;
+    int ret = send(fd, &m_clientData.sendBuf, m_clientData.sendSize, MSG_DONTWAIT);
 
-        if (strncmp(m_clientData.buf, HEARTBEAT_SERVER_MSG, strlen(HEARTBEAT_SERVER_MSG)) == 0)
+    if (ret == -1)
+    {
+        if (errno != EAGAIN && EAGAIN != EWOULDBLOCK)
+        {
+            printf("serverSafeSend err: %d\n", errno);
+            m_pLogger->err("serverSafeSend err: %d\n", errno);
+            // TODO do something, may reconnect server...
+        }
+    }
+    else if (ret > 0)
+    {
+        m_clientData.sendSize -= ret;
+
+        if (m_clientData.sendSize == 0)
+        {
+            callback(fd);
+        }
+        else
+        {
+            memmove(
+                m_clientData.sendBuf, 
+                m_clientData.sendBuf + ret, 
+                m_clientData.sendSize
+            );
+        }
+    }
+}
+
+void Client::clientReadProc(int fd, int mask)
+{
+    if (!(mask & EVENT_READABLE))
+    {
+        return;
+    }
+
+    serverSafeRecv(
+        fd,
+        std::bind(
+            &Client::onClientReadDone,
+            this,
+            std::placeholders::_1
+        )
+    );
+}
+
+void Client::onClientReadDone(size_t dataSize)
+{
+    MsgData msgData;
+
+    memcpy(&msgData, m_clientData.recvBuf, sizeof(MsgData));
+
+    if (msgData.type == MSGTYPE_HEARTBEAT)
+    {
+        if (memcmp(m_clientData.recvBuf + sizeof(MsgData), 
+                    HEARTBEAT_SERVER_MSG, msgData.size) == 0)
         {
             processHeartbeat();
         }
     }
-    else if (m_clientData.msgData.type == MSGTYPE_NEW_PROXY)
+    else if (msgData.type == MSGTYPE_NEW_PROXY)
     {
         NewProxyMsg newProxy;
-        memcpy(&newProxy, m_clientData.buf, m_clientData.recvSize);
-        m_clientData.recvSize = sizeof(MsgData);
-        m_clientData.recvNum = 0;
-        m_clientData.msgData.type = -1;
+        memcpy(&newProxy, m_clientData.recvBuf + sizeof(MsgData), msgData.size);
+
         printf("new proxy %d %d\n", newProxy.UserId, newProxy.rmeotePort);
         m_pLogger->info("new proxy %d %d", newProxy.UserId, newProxy.rmeotePort);
+
         makeNewProxy(newProxy);
     }
 }
@@ -310,6 +376,7 @@ void Client::makeNewProxy(NewProxyMsg newProxy)
         replyNewProxy(newProxy.UserId, false);
         return;
     }
+
     ProxyConnInfo pci;
     pci.localFd = localFd;
     m_mapProxyConn[proxyFd] = pci;
@@ -320,6 +387,7 @@ void Client::makeNewProxy(NewProxyMsg newProxy)
 
     replyNewProxy(newProxy.UserId, true);
     sendProxyInfo(proxyFd, newProxy.UserId);
+
     // TODO regist event
     m_reactor.registFileEvent(localFd, EVENT_READABLE,
                               std::bind(&Client::localReadDataProc,
@@ -477,8 +545,11 @@ void Client::deleteLocalConn(int fd)
 
 int Client::sendProxyInfo(int porxyFd, int userId)
 {
-    int ret = send(porxyFd, &userId, sizeof(userId), MSG_DONTWAIT);
-    if (ret != sizeof(userId))
+    char buf[MsgUtil::ensureCryptedDataSize(sizeof(userId))];
+    size_t dataSize = MsgUtil::packCryptedData(m_pCryptor, (uint8_t*)buf, (uint8_t*)&userId, sizeof(userId));
+
+    int ret = send(porxyFd, buf, dataSize, MSG_DONTWAIT);
+    if (ret != dataSize)
     {
         printf("sendProxyInfo err: %d\n", errno);
         m_pLogger->err("sendProxyInfo err: %d", errno);
@@ -498,15 +569,50 @@ void Client::replyNewProxy(int userId, bool isSuccess)
 
     size_t bufSize = sizeof(msgData) + sizeof(replyMsg);
     char buf[bufSize];
+
     memcpy(buf, &msgData, sizeof(msgData));
     memcpy(buf + sizeof(msgData), &replyMsg, sizeof(replyMsg));
 
-    int ret = send(m_clientSocketFd, buf, bufSize, MSG_DONTWAIT);
-    if (ret != bufSize)
+    m_clientData.sendSize = MsgUtil::packCryptedData(
+        m_pCryptor, 
+        (uint8_t*)m_clientData.sendBuf, 
+        (uint8_t*)buf,
+        bufSize
+    );
+
+    m_reactor.registFileEvent(
+        m_clientSocketFd,
+        EVENT_WRITABLE,
+        std::bind(
+            &Client::replyNewProxyProc,
+            this,
+            std::placeholders::_1,
+            std::placeholders::_2
+        )
+    );
+}
+
+void Client::replyNewProxyProc(int fd, int mask)
+{
+    if (!(mask & EVENT_WRITABLE))
     {
-        printf("replyNewProxy send err: %d\n", errno);
-        m_pLogger->err("replyNewProxy send err: %d", errno);
+        return;
     }
+
+    serverSafeSend(
+        m_clientSocketFd, 
+        std::bind(
+            &Client::onReplyNewProxyDone,
+            this,
+            std::placeholders::_1
+        )
+    );
+}
+
+void Client::onReplyNewProxyDone(int fd)
+{
+    m_reactor.removeFileEvent(fd, EVENT_WRITABLE);
+    printf("onReplyNewProxyDone\n");
 }
 
 int Client::connectLocalApp(unsigned short remotePort)
@@ -560,12 +666,16 @@ int Client::sendHeartbeatTimerProc(long long id)
     heartData.type = MSGTYPE_HEARTBEAT;
     heartData.size = strlen(HEARTBEAT_CLIENT_MSG);
 
-    size_t bufSize = sizeof(heartData) + strlen(HEARTBEAT_CLIENT_MSG);
-    char buf[bufSize];
-    memcpy(buf, &heartData, sizeof(heartData));
-    memcpy(buf + sizeof(heartData), HEARTBEAT_CLIENT_MSG, strlen(HEARTBEAT_CLIENT_MSG));
+    size_t dataSize = sizeof(heartData) + strlen(HEARTBEAT_CLIENT_MSG);
+    char bufData[dataSize];
 
-    int ret = send(m_clientSocketFd, buf, bufSize, MSG_DONTWAIT);
+    memcpy(bufData, &heartData, sizeof(heartData));
+    memcpy(bufData + sizeof(heartData), HEARTBEAT_CLIENT_MSG, strlen(HEARTBEAT_CLIENT_MSG));
+
+    uint8_t buf[MsgUtil::ensureCryptedDataSize(dataSize)];
+    uint32_t cryptedDataLen = MsgUtil::packCryptedData(m_pCryptor, buf, (uint8_t*)bufData, dataSize);
+
+    int ret = send(m_clientSocketFd, buf, cryptedDataLen, MSG_DONTWAIT);
     if (ret == -1)
     {
         if (errno != EAGAIN && errno != EWOULDBLOCK)
@@ -576,7 +686,7 @@ int Client::sendHeartbeatTimerProc(long long id)
     }
     else
     {
-        if (ret == bufSize)
+        if (ret == cryptedDataLen)
         {
             printf("send heartbeat success!\n");
         }

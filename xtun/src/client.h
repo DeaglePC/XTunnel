@@ -10,7 +10,7 @@
 #include "cryptor.h"
 
 const size_t PW_MAX_LEN = 32; // len of md5
-const size_t MAX_BUF_SIZE = 1024;
+const size_t MAX_BUF_SIZE = 1024 * 1024;
 
 const int HEARTBEAT_INTERVAL_MS = 1000; // 每次心跳的间隔时间
 const long DEFAULT_SERVER_TIMEOUT_MS = 5000; // 默认5秒没收到服务端的心跳表示服务端不在线
@@ -40,9 +40,15 @@ struct NetData
 {
   size_t recvNum;
   size_t recvSize;
-  MsgData msgData;
-  char buf[MAX_BUF_SIZE];
-  NetData() : recvNum(0), recvSize(sizeof(msgData)) {}
+
+  DataHeader header;
+
+  char recvBuf[MAX_BUF_SIZE + AES_BLOCKLEN];
+
+  size_t sendNum;
+  size_t sendSize;
+  char sendBuf[MAX_BUF_SIZE + AES_BLOCKLEN];
+  NetData() : recvNum(0), recvSize(0) {}
 };
 
 struct ProxyConnInfo
@@ -90,13 +96,22 @@ private:
 
   Cryptor *m_pCryptor;
 
+  void serverSafeRecv(int fd, std::function<void(size_t dataSize)> callback);  // recv crypted msg from server
+  void serverSafeSend(int fd, std::function<void(int fd)> callback);
+  
   void clientReadProc(int fd, int mask);
+  void onClientReadDone(size_t dataSize);
+
   int sendPorts();
-  void porcessMsgBuf();
+  // void porcessMsgBuf();
   void makeNewProxy(NewProxyMsg newProxy);
   int connectLocalApp(unsigned short remotePort);
   int connectServerProxy();
+
   void replyNewProxy(int userId, bool isSuccess);
+  void replyNewProxyProc(int fd, int mask);
+  void onReplyNewProxyDone(int fd);
+
   int sendProxyInfo(int porxyFd, int userId);
   int sendHeartbeatTimerProc(long long id);
   void processHeartbeat();  // 收到服务端的心跳做的处理
