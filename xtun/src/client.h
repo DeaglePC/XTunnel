@@ -43,32 +43,37 @@ struct NetData
 
   DataHeader header;
 
-  char recvBuf[MAX_BUF_SIZE + AES_BLOCKLEN];
+  char recvBuf[MAX_BUF_SIZE + AES_BLOCKLEN + sizeof(DataHeader)];
 
   size_t sendNum;
   size_t sendSize;
-  char sendBuf[MAX_BUF_SIZE + AES_BLOCKLEN];
+  char sendBuf[MAX_BUF_SIZE + AES_BLOCKLEN + sizeof(DataHeader)];
   NetData() : recvNum(0), recvSize(0) {}
 };
 
 struct ProxyConnInfo
 {
-  /* data */
   int localFd;
 
   int sendSize;
-  char sendBuf[MAX_BUF_SIZE];
-  ProxyConnInfo() : sendSize(0) {}
+  char sendBuf[MAX_BUF_SIZE + AES_BLOCKLEN + sizeof(DataHeader)];
+
+  DataHeader header;
+  size_t recvNum;
+  size_t recvSize;
+  char recvBuf[MAX_BUF_SIZE + AES_BLOCKLEN + sizeof(DataHeader)];
+
+  ProxyConnInfo() : sendSize(0), recvNum(0), recvSize(0) {}
 };
 using ProxyConnInfoMap = std::unordered_map<int, ProxyConnInfo>;
 
 struct LocalConnInfo
 {
-  /* data */
   int proxyFd;
 
-  int sendSize;
-  char sendBuf[MAX_BUF_SIZE];
+  size_t sendSize;
+  char sendBuf[MAX_BUF_SIZE + AES_BLOCKLEN + sizeof(DataHeader)];
+
   LocalConnInfo() : sendSize(0) {}
 };
 using LocalConnInfoMap = std::unordered_map<int, LocalConnInfo>;
@@ -117,7 +122,9 @@ private:
   void processHeartbeat();  // 收到服务端的心跳做的处理
   int checkHeartbeatTimerProc(long long id);
 
+  void proxySafeRecv(int fd, std::function<void(int fd, size_t dataSize)> callback);
   void localReadDataProc(int fd, int mask);
+  void onProxyReadDataDone(int fd, size_t dataSize);
   void localWriteDataProc(int fd, int mask);
   void proxyReadDataProc(int fd, int mask);
   void proxyWriteDataProc(int fd, int mask);

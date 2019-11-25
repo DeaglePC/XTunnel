@@ -400,13 +400,16 @@ void Client::makeNewProxy(NewProxyMsg newProxy)
 void Client::localReadDataProc(int fd, int mask)
 {
     int proxyFd = m_mapLocalConn[fd].proxyFd;
+
     if (m_mapProxyConn[proxyFd].sendSize == sizeof(m_mapProxyConn[proxyFd].sendBuf))
     {
         printf("proxy send buf full\n");
+        m_pLogger->warn("proxy send buf full");
         return;
     }
+
     int numRecv = recv(fd, m_mapProxyConn[proxyFd].sendBuf + m_mapProxyConn[proxyFd].sendSize,
-                       sizeof(m_mapProxyConn[proxyFd].sendBuf) - m_mapProxyConn[proxyFd].sendSize, MSG_DONTWAIT);
+                       MAX_BUF_SIZE - m_mapProxyConn[proxyFd].sendSize, MSG_DONTWAIT);
     if (numRecv == -1)
     {
         if (errno != EAGAIN && EAGAIN != EWOULDBLOCK)
@@ -423,10 +426,24 @@ void Client::localReadDataProc(int fd, int mask)
     }
     else if (numRecv > 0)
     {
-        m_mapProxyConn[proxyFd].sendSize += numRecv;
-        m_reactor.registFileEvent(proxyFd, EVENT_WRITABLE,
-                                  std::bind(&Client::proxyWriteDataProc,
-                                            this, std::placeholders::_1, std::placeholders::_2));
+        m_mapProxyConn[proxyFd].sendSize += MsgUtil::packCryptedData(
+            m_pCryptor,
+            (uint8_t*)m_mapProxyConn[proxyFd].sendBuf + m_mapProxyConn[proxyFd].sendSize,
+            (uint8_t*)m_mapProxyConn[proxyFd].sendBuf + m_mapProxyConn[proxyFd].sendSize,
+            numRecv
+        );
+
+        m_reactor.registFileEvent(
+            proxyFd, 
+            EVENT_WRITABLE,
+            std::bind(
+                &Client::proxyWriteDataProc,
+                this, 
+                std::placeholders::_1, 
+                std::placeholders::_2
+            )
+        );
+        
         printf("localReadDataProc: recv from local: %d, proxy snedSize: %d\n", numRecv, m_mapProxyConn[proxyFd].sendSize);
     }
 }
@@ -460,39 +477,109 @@ void Client::proxyWriteDataProc(int fd, int mask)
     }
 }
 
-void Client::proxyReadDataProc(int fd, int mask)
+void Client::proxySafeRecv(
+    int fd, 
+    std::function<void(int fd, size_t dataSize)> callback)
 {
-    int localFd = m_mapProxyConn[fd].localFd;
-    if (m_mapLocalConn[localFd].sendSize == sizeof(m_mapLocalConn[localFd].sendBuf))
-    {
-        printf("local send buf full\n");
-        //m_pLogger->warn("local send buf full");
-        return;
-    }
-    int numRecv = recv(fd, m_mapLocalConn[localFd].sendBuf + m_mapLocalConn[localFd].sendSize,
-                       sizeof(m_mapLocalConn[localFd].sendBuf) - m_mapLocalConn[localFd].sendSize, MSG_DONTWAIT);
-    if (numRecv == -1)
+    int ret;
+    // there is not header init if data len is 0
+    size_t targetSize = m_mapProxyConn[fd].header.ensureTargetDataSize();
+
+    ret = recv(fd, m_mapProxyConn[fd].recvBuf + m_mapProxyConn[fd].recvNum,
+                targetSize - m_mapProxyConn[fd].recvNum, MSG_DONTWAIT);
+    if (ret == -1)
     {
         if (errno != EAGAIN && EAGAIN != EWOULDBLOCK)
         {
-            printf("proxyReadDataProc recv err: %d\n", errno);
-            m_pLogger->err("proxyReadDataProc recv err: %d", errno);
+            printf("proxySafeRecv recv err: %d\n", errno);
+            m_pLogger->err("proxySafeRecv recv err: %d", errno);
             return;
         }
     }
-    else if (numRecv == 0)
+    else if (ret == 0)
     {
         deleteProxyConn(fd);
-        deleteLocalConn(localFd);
+        deleteLocalConn(m_mapProxyConn[fd].localFd);
     }
-    else if (numRecv > 0)
+    else if (ret > 0)
     {
-        m_mapLocalConn[localFd].sendSize += numRecv;
-        m_reactor.registFileEvent(localFd, EVENT_WRITABLE,
-                                  std::bind(&Client::localWriteDataProc,
-                                            this, std::placeholders::_1, std::placeholders::_2));
-        printf("proxyReadDataProc: recv from proxy: %d, local snedSize: %d\n", numRecv, m_mapLocalConn[localFd].sendSize);
+        m_mapProxyConn[fd].recvNum += ret;
+
+        if (m_mapProxyConn[fd].recvNum == targetSize)
+        {
+            m_mapProxyConn[fd].recvNum = 0;
+
+            // targetSize = header size or data size
+            if (targetSize == sizeof(DataHeader))
+            {
+                memcpy(&m_mapProxyConn[fd].header, m_mapProxyConn[fd].recvBuf, targetSize);
+            }
+            else
+            {
+                uint32_t realDataSize = m_pCryptor->decrypt(
+                    m_mapProxyConn[fd].header.iv, 
+                    (uint8_t*)m_mapProxyConn[fd].recvBuf, 
+                    targetSize
+                );
+
+                // if recv all done, we callback
+                callback(fd, realDataSize);
+
+                // remember init datalen for next recv
+                m_mapProxyConn[fd].header.dataLen = 0;
+            }
+        }
     }
+}
+
+void Client::proxyReadDataProc(int fd, int mask)
+{
+    if (!(mask & EVENT_READABLE))
+    {
+        return;
+    }
+
+    proxySafeRecv(
+        fd,
+        std::bind(
+            &Client::onProxyReadDataDone,
+            this,
+            std::placeholders::_1, 
+            std::placeholders::_2
+        )
+    );
+}
+
+// send to local
+void Client::onProxyReadDataDone(int fd, size_t dataSize)
+{
+    int localFd = m_mapProxyConn[fd].localFd;
+
+    if (m_mapLocalConn[localFd].sendSize + dataSize >= sizeof(m_mapLocalConn[localFd].sendBuf))
+    {
+        printf("local send buf full\n");
+        m_pLogger->warn("local send buf full");
+        return;
+    }
+
+    memcpy(
+        m_mapLocalConn[localFd].sendBuf + m_mapLocalConn[localFd].sendSize, 
+        m_mapProxyConn[fd].recvBuf, 
+        dataSize
+    );
+    m_mapLocalConn[localFd].sendSize += dataSize;
+
+    // duplicated regist is fine
+    m_reactor.registFileEvent(
+        localFd,
+        EVENT_WRITABLE,
+        std::bind(
+            &Client::localWriteDataProc,
+            this, 
+            std::placeholders::_1, 
+            std::placeholders::_2
+        )
+    );
 }
 
 void Client::localWriteDataProc(int fd, int mask)

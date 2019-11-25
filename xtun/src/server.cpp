@@ -524,7 +524,6 @@ void Server::sendClientNewProxyProc(int cfd, int mask)
 void Server::onSendClientNewProxyDone(int cfd)
 {
     m_reactor.removeFileEvent(cfd, EVENT_WRITABLE);
-    printf("##### onSendClientNewProxyDone!");
 }
 
 void Server::recvClientDataProc(int cfd, int mask)
@@ -805,43 +804,54 @@ void Server::deleteProxyConn(int fd)
     m_pLogger->info("deleted proxy conn: %d", fd);
 }
 
-/*
- * 读取客户端发来的代理通道的数据,转发给user
-*/
+
 void Server::proxyReadDataProc(int fd, int mask)
 {
-    printf("on proxyReadDataProc\n");
-    int userFd = m_mapProxy[fd].userFd;
-    // 把数据放到user的发送缓冲区
-    if (m_mapUsers[userFd].sendSize == sizeof(m_mapUsers[userFd].sendBuf))
+    if (!(mask & EVENT_READABLE))
     {
-        printf("user send buf full\n");
         return;
     }
-    int numRecv = recv(fd, m_mapUsers[userFd].sendBuf + m_mapUsers[userFd].sendSize,
-                       sizeof(m_mapUsers[userFd].sendBuf) - m_mapUsers[userFd].sendSize, MSG_DONTWAIT);
-    if (numRecv == -1)
+
+    proxySafeRecv(
+        fd,
+        std::bind(
+            &Server::onProxyReadDataDone,
+            this,
+            std::placeholders::_1, 
+            std::placeholders::_2
+        )
+    );
+}
+
+void Server::onProxyReadDataDone(int fd, size_t dataSize)
+{
+    int userFd = m_mapProxy[fd].userFd;
+
+    if (m_mapUsers[userFd].sendSize + dataSize >= sizeof(m_mapUsers[userFd].sendBuf))
     {
-        if (errno != EAGAIN && EAGAIN != EWOULDBLOCK)
-        {
-            printf("proxyReadDataProc recv err: %d\n", errno);
-            m_pLogger->err("proxyReadDataProc recv err: %d\n", errno);
-            return;
-        }
+        printf("user send buf full\n");
+        m_pLogger->warn("user send buf full");
+        return;
     }
-    else if (numRecv == 0)
-    {
-        deleteProxyConn(fd);
-        deleteUser(userFd);
-    }
-    else if (numRecv > 0)
-    {
-        m_mapUsers[userFd].sendSize += numRecv;
-        m_reactor.registFileEvent(userFd, EVENT_WRITABLE,
-                                  std::bind(&Server::userWriteDataProc,
-                                            this, std::placeholders::_1, std::placeholders::_2));
-        printf("proxyReadDataProc: recv from proxy: %d, user snedSize: %d\n", numRecv, m_mapUsers[userFd].sendSize);
-    }
+
+    memcpy(
+        m_mapUsers[userFd].sendBuf + m_mapUsers[userFd].sendSize, 
+        m_mapProxy[fd].recvBuf, 
+        dataSize
+    );
+    m_mapUsers[userFd].sendSize += dataSize;
+
+    // duplicated regist is fine
+    m_reactor.registFileEvent(
+        userFd,
+        EVENT_WRITABLE,
+        std::bind(
+            &Server::userWriteDataProc,
+            this, 
+            std::placeholders::_1, 
+            std::placeholders::_2
+        )
+    );
 }
 
 /*
@@ -880,17 +890,19 @@ void Server::userWriteDataProc(int fd, int mask)
 }
 
 /*
- * 读user的数据，转发给proxy通道
+ * recv user data, and send to proxy tunnel with encrypted
 */
 void Server::userReadDataProc(int fd, int mask)
 {
     printf("on userReadDataProc\n");
     int proxyFd = m_mapUsers[fd].proxyFd;
+
     if (m_mapProxy[proxyFd].sendSize == sizeof(m_mapProxy[proxyFd].sendBuf))
     {
         printf("proxy send buf full\n");
         return;
     }
+
     int numRecv = recv(fd, m_mapProxy[proxyFd].sendBuf + m_mapProxy[proxyFd].sendSize,
                        sizeof(m_mapProxy[proxyFd].sendBuf) - m_mapProxy[proxyFd].sendSize, MSG_DONTWAIT);
     if (numRecv == -1)
@@ -909,10 +921,23 @@ void Server::userReadDataProc(int fd, int mask)
     }
     else if (numRecv > 0)
     {
-        m_mapProxy[proxyFd].sendSize += numRecv;
-        m_reactor.registFileEvent(proxyFd, EVENT_WRITABLE,
-                                  std::bind(&Server::proxyWriteDataProc,
-                                            this, std::placeholders::_1, std::placeholders::_2));
+        m_mapProxy[proxyFd].sendSize += MsgUtil::packCryptedData(
+            m_pCryptor,
+            (uint8_t*)m_mapProxy[proxyFd].sendBuf + m_mapProxy[proxyFd].sendSize,
+            (uint8_t*)m_mapProxy[proxyFd].sendBuf + m_mapProxy[proxyFd].sendSize,
+            numRecv
+        );
+
+        m_reactor.registFileEvent(
+            proxyFd, 
+            EVENT_WRITABLE,
+            std::bind(
+                &Server::proxyWriteDataProc,
+                this, 
+                std::placeholders::_1, 
+                std::placeholders::_2
+            )
+        );
         printf("userReadDataProc: recv from user: %d, proxy snedSize: %d\n", numRecv, m_mapProxy[proxyFd].sendSize);
     }
 }

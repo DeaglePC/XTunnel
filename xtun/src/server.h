@@ -66,8 +66,11 @@ struct UserInfo
   int proxyFd;
 
   int sendSize; // 发送缓冲区现有数据
-  char sendBuf[MAX_BUF_SIZE + AES_BLOCKLEN];
-  UserInfo() : sendSize(0) {}
+  char sendBuf[MAX_BUF_SIZE + AES_BLOCKLEN + sizeof(DataHeader)];
+
+  size_t recvNum;
+  size_t recvSize;
+  UserInfo() : sendSize(0), recvNum(0), recvSize(0) {}
 };
 using UserInfoMap = std::unordered_map<int, UserInfo>;
 
@@ -79,10 +82,10 @@ struct ProxyConnInfo
 
   int recvNum;
   int recvSize;
-  char recvBuf[MAX_BUF_SIZE + AES_BLOCKLEN];
+  char recvBuf[MAX_BUF_SIZE + AES_BLOCKLEN + sizeof(DataHeader)];
 
   int sendSize;
-  char sendBuf[MAX_BUF_SIZE + AES_BLOCKLEN];
+  char sendBuf[MAX_BUF_SIZE + AES_BLOCKLEN + sizeof(DataHeader)];
 
   ProxyConnInfo() : sendSize(0), recvNum(0), recvSize(0) {}
 };
@@ -136,9 +139,9 @@ private:
   void recvClientDataProc(int fd, int mask);   // 正常建立链接后，客户端和服务器交互的数据处理
   void processClientBuf(int cfd,  size_t dataSize);
   
+  // heartbeat
   void sendHeartbeat(int cfd);         // 回复心跳
   void updateClientHeartbeat(int cfd); // 更新客户端心跳时间
-
   int checkHeartbeatTimerProc(long long id); // 检查客户端心跳,定时器
 
   void processNewProxy(ReplyNewProxyMsg rnpm);  // 处理新代理连接
@@ -151,6 +154,8 @@ private:
   
   void proxyReadUserInfoProc(int fd, int mask); // 首次接收是和哪个user进行数据转发
   void onProxyReadUserInfoDone(int fd, size_t dataSize);
+
+  void onProxyReadDataDone(int fd, size_t dataSize);
 
   void proxyReadDataProc(int fd, int mask);  // 接收客户端代理通道发来的数据
   void proxyWriteDataProc(int fd, int mask); // 给客户端的代理通道发送数据
