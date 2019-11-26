@@ -26,7 +26,7 @@ defaut: all
 all: $(BIN_PATH)/$(TARGET_SERVER) $(BIN_PATH)/$(TARGET_CLIENT)
 
 # server
-$(BIN_PATH)/$(TARGET_SERVER): $(OBJ_PATH)/tunclient.o $(OBJ_PATH)/client.o $(OBJ_PATH)/select_demultiplexer.o \
+$(BIN_PATH)/$(TARGET_SERVER): $(OBJ_PATH)/tunserver.o $(OBJ_PATH)/server.o $(OBJ_PATH)/select_demultiplexer.o \
 								$(OBJ_PATH)/reactor.o $(OBJ_PATH)/tnet.o $(OBJ_PATH)/timer_pool.o \
 								$(OBJ_PATH)/epoll_demultiplexer.o $(OBJ_PATH)/md5.o $(OBJ_PATH)/inifile.o \
 								$(OBJ_PATH)/logger.o $(OBJ_PATH)/aes.o $(OBJ_PATH)/cryptor.o $(OBJ_PATH)/msgdata.o
