@@ -14,8 +14,8 @@
 const unsigned short DEFAULT_PORT = 10086;
 const unsigned short DEFAULT_PROXY_PORT = 10001;
 
-const size_t AUTH_BUF_SIZE = 32;
-const size_t MAX_BUF_SIZE = 1024 * 1024;
+extern const size_t PW_MAX_LEN;
+extern const size_t MAX_BUF_SIZE;
 
 const int HEARTBEAT_INTERVAL_MS = 1000;      // 每次心跳的间隔时间
 const long DEFAULT_SERVER_TIMEOUT_MS = 5000; // 默认5秒没收到服务端的心跳表示服务端不在
@@ -25,12 +25,16 @@ extern const char HEARTBEAT_SERVER_MSG[];
 
 extern const char AUTH_TOKEN[];
 
+
+
 enum ClientStatus
 {
   CLIENT_STATUS_CONNECTED,
   CLIENT_STATUS_PW_OK,
   CLIENT_STATUS_PW_WRONG,
 };
+
+
 
 struct ClientInfo
 {
@@ -53,6 +57,8 @@ struct ClientInfo
 };
 using ClientInfoMap = std::unordered_map<int, ClientInfo>;
 
+
+
 struct ListenInfo
 {
   unsigned short port; //  监听的对外端口
@@ -60,19 +66,21 @@ struct ListenInfo
 };
 using ListenInfoMap = std::unordered_map<int, ListenInfo>;
 
+
+
 struct UserInfo
 {
   unsigned short port;
   int proxyFd;
 
-  int sendSize; // 发送缓冲区现有数据
+  size_t sendSize; // 发送缓冲区现有数据
   char sendBuf[MAX_BUF_SIZE + AES_BLOCKLEN + sizeof(DataHeader)];
 
-  size_t recvNum;
-  size_t recvSize;
-  UserInfo() : sendSize(0), recvNum(0), recvSize(0) {}
+  UserInfo() : sendSize(0) {}
 };
 using UserInfoMap = std::unordered_map<int, UserInfo>;
+
+
 
 struct ProxyConnInfo
 {
@@ -80,26 +88,31 @@ struct ProxyConnInfo
 
   DataHeader header;
 
-  int recvNum;
-  int recvSize;
+  size_t recvNum;
+  size_t recvSize;
   char recvBuf[MAX_BUF_SIZE + AES_BLOCKLEN + sizeof(DataHeader)];
 
-  int sendSize;
+  size_t sendSize;
   char sendBuf[MAX_BUF_SIZE + AES_BLOCKLEN + sizeof(DataHeader)];
 
   ProxyConnInfo() : sendSize(0), recvNum(0), recvSize(0) {}
 };
 using ProxyConnInfoMap = std::unordered_map<int, ProxyConnInfo>;
 
+
+
 class Server
 {
 private:
   Reactor m_reactor;
+
   int m_serverSocketFd;
   int m_proxySocketFd;
+
   unsigned short m_serverPort;
   unsigned short m_proxyPort;
-  char m_serverPassword[AUTH_BUF_SIZE];
+
+  char m_serverPassword[PW_MAX_LEN];
 
   Logger *m_pLogger;
   Cryptor *m_pCryptor;
@@ -172,8 +185,10 @@ private:
 public:
   Server(unsigned short port = DEFAULT_PORT, unsigned short proxyPort = DEFAULT_PROXY_PORT);
   ~Server();
+
   void setPassword(const char *password);
   void setLogger(Logger *logger);
+  
   void startEventLoop();
 };
 

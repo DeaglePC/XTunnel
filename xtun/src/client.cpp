@@ -352,7 +352,7 @@ int Client::checkHeartbeatTimerProc(long long id)
         m_pLogger->info("server timeout %ldms", subTimeStamp);
         exit(-1);
     }
-    printf("check heartbeat ok!%ld\n", subTimeStamp);
+    // printf("check heartbeat ok!%ld\n", subTimeStamp);
     return HEARTBEAT_INTERVAL_MS;
 }
 
@@ -775,7 +775,7 @@ int Client::sendHeartbeatTimerProc(long long id)
     {
         if (ret == cryptedDataLen)
         {
-            printf("send heartbeat success!\n");
+            // printf("send heartbeat success!\n");
         }
         else
         {
@@ -853,16 +853,13 @@ void Client::runClient()
         return;
     }
 
-    // debug
-    printf("===ok===\n");
-    system("pause");
-
     ret = sendPorts();
     if (ret == -1)
     {
         m_pLogger->err("send ports err");
         return;
     }
+
     m_pLogger->info("send ports ok");
     long now_sec, mow_ms;
     getTime(&now_sec, &mow_ms);
@@ -876,6 +873,7 @@ void Client::runClient()
     m_reactor.registFileEvent(m_clientSocketFd, EVENT_READABLE,
                               std::bind(&Client::clientReadProc,
                                         this, std::placeholders::_1, std::placeholders::_2));
+    
     m_pLogger->info("client running...");
     m_reactor.eventLoop(EVENT_LOOP_ALL_EVENT);
 }

@@ -4,6 +4,9 @@
 #include "aes.h"
 #include "cryptor.h"
 
+const size_t PW_MAX_LEN = 32; // len of md5
+const size_t MAX_BUF_SIZE = 1024 * 32; // 32k
+
 
 enum MSGTYPE
 {

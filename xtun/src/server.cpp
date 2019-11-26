@@ -596,7 +596,7 @@ void Server::sendHeartbeat(int cfd)
     {
         if (ret == cryptedDataLen)
         {
-            printf("send to client: %d heartbeat success!\n", cfd);
+            // printf("send to client: %d heartbeat success!\n", cfd);
         }
         else
         {
@@ -625,7 +625,7 @@ int Server::checkHeartbeatTimerProc(long long id)
             getTime(&now_sec, &now_ms);
             nowTimeStamp = now_sec * 1000 + now_ms;
             long subTimeStamp = nowTimeStamp - it.second.lastHeartbeat;
-            printf("check timeout: %ld\n", subTimeStamp);
+            // printf("check timeout: %ld\n", subTimeStamp);
             if (subTimeStamp > DEFAULT_SERVER_TIMEOUT_MS)
             {
                 // delete
@@ -897,14 +897,14 @@ void Server::userReadDataProc(int fd, int mask)
     printf("on userReadDataProc\n");
     int proxyFd = m_mapUsers[fd].proxyFd;
 
-    if (m_mapProxy[proxyFd].sendSize == sizeof(m_mapProxy[proxyFd].sendBuf))
+    if (m_mapProxy[proxyFd].sendSize >= MAX_BUF_SIZE)
     {
         printf("proxy send buf full\n");
         return;
     }
 
     int numRecv = recv(fd, m_mapProxy[proxyFd].sendBuf + m_mapProxy[proxyFd].sendSize,
-                       sizeof(m_mapProxy[proxyFd].sendBuf) - m_mapProxy[proxyFd].sendSize, MSG_DONTWAIT);
+                       MAX_BUF_SIZE - m_mapProxy[proxyFd].sendSize, MSG_DONTWAIT);
     if (numRecv == -1)
     {
         if (errno != EAGAIN && EAGAIN != EWOULDBLOCK)
@@ -938,7 +938,7 @@ void Server::userReadDataProc(int fd, int mask)
                 std::placeholders::_2
             )
         );
-        printf("userReadDataProc: recv from user: %d, proxy snedSize: %d\n", numRecv, m_mapProxy[proxyFd].sendSize);
+        printf("userReadDataProc: recv from user: %d, proxy snedSize: %lu\n", numRecv, m_mapProxy[proxyFd].sendSize);
     }
 }
 

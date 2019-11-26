@@ -9,8 +9,8 @@
 #include "logger.h"
 #include "cryptor.h"
 
-const size_t PW_MAX_LEN = 32; // len of md5
-const size_t MAX_BUF_SIZE = 1024 * 1024;
+extern const size_t PW_MAX_LEN; // len of md5
+extern const size_t MAX_BUF_SIZE;
 
 const int HEARTBEAT_INTERVAL_MS = 1000; // 每次心跳的间隔时间
 const long DEFAULT_SERVER_TIMEOUT_MS = 5000; // 默认5秒没收到服务端的心跳表示服务端不在线
@@ -20,12 +20,14 @@ extern const char HEARTBEAT_SERVER_MSG[];
 
 extern const char AUTH_TOKEN[];
 
+
 struct ProxyInfo
 {
   unsigned short remotePort;
   unsigned short localPort;
   char localIp[INET_ADDRSTRLEN];
 };
+
 
 enum AUTH_STATUS
 {
@@ -35,6 +37,7 @@ enum AUTH_STATUS
   SEND_PW_OK,     // 发送密码成功
   AUTH_UNKNOW     // 服务器返回了未知数据
 };
+
 
 struct NetData
 {
@@ -50,6 +53,7 @@ struct NetData
   char sendBuf[MAX_BUF_SIZE + AES_BLOCKLEN + sizeof(DataHeader)];
   NetData() : recvNum(0), recvSize(0) {}
 };
+
 
 struct ProxyConnInfo
 {
@@ -67,6 +71,7 @@ struct ProxyConnInfo
 };
 using ProxyConnInfoMap = std::unordered_map<int, ProxyConnInfo>;
 
+
 struct LocalConnInfo
 {
   int proxyFd;
@@ -77,6 +82,7 @@ struct LocalConnInfo
   LocalConnInfo() : sendSize(0) {}
 };
 using LocalConnInfoMap = std::unordered_map<int, LocalConnInfo>;
+
 
 class Client
 {
@@ -108,7 +114,6 @@ private:
   void onClientReadDone(size_t dataSize);
 
   int sendPorts();
-  // void porcessMsgBuf();
   void makeNewProxy(NewProxyMsg newProxy);
   int connectLocalApp(unsigned short remotePort);
   int connectServerProxy();
