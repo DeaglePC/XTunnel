@@ -3,6 +3,7 @@
 #include <vector>
 #include <cstring>
 #include <unistd.h>
+
 #include "client.h"
 #include "inifile.h"
 #include "logger.h"
@@ -174,7 +175,17 @@ int main(int argc, char *argv[])
     g_pClient->setProxyConfig(pcs);
     g_pClient->setPassword(g_cfg.password.c_str());
     g_pClient->setProxyPort(g_cfg.proxyPort);
-    g_pClient->runClient();
+
+    size_t retryCnt = 0;
+    while (1)
+    {
+        g_pClient->runClient();
+        
+        sleep(2);   // 2 seconds
+        printf("reconnect server...  %lu\n", retryCnt);
+        g_logger.info("reconnect server... %lu times", ++retryCnt);
+    }
+    
     delete g_pClient;
 
     return 0;

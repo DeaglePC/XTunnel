@@ -225,7 +225,8 @@ void Client::serverSafeRecv(int sfd, std::function<void(size_t dataSize)> callba
     {
         printf("clientReadProc server offline\n");
         m_pLogger->info("clientReadProc server offline");
-        exit(-1);
+        stopClient();
+        // exit(-1);
     }
     else if (ret > 0)
     {
@@ -350,7 +351,8 @@ int Client::checkHeartbeatTimerProc(long long id)
     {
         printf("server timeout %ldms\n", subTimeStamp);
         m_pLogger->info("server timeout %ldms", subTimeStamp);
-        exit(-1);
+        // exit(-1);
+        stopClient();
     }
     // printf("check heartbeat ok!%ld\n", subTimeStamp);
     return HEARTBEAT_INTERVAL_MS;
@@ -875,5 +877,27 @@ void Client::runClient()
                                         this, std::placeholders::_1, std::placeholders::_2));
     
     m_pLogger->info("client running...");
+    m_reactor.setStart();
     m_reactor.eventLoop(EVENT_LOOP_ALL_EVENT);
+}
+
+void Client::stopClient()
+{
+    m_reactor.stopEventLoop();
+    if (m_clientSocketFd != -1)
+    {
+        close(m_clientSocketFd);
+        m_reactor.removeFileEvent(m_clientSocketFd, EVENT_READABLE | EVENT_WRITABLE);
+    }
+
+    for (const auto &it : m_mapProxyConn)
+    {
+        m_reactor.removeFileEvent(it.first, EVENT_READABLE | EVENT_WRITABLE);
+        close(it.first);
+    }
+    for (const auto &it : m_mapLocalConn)
+    {
+        m_reactor.removeFileEvent(it.first, EVENT_READABLE | EVENT_WRITABLE);
+        close(it.first);
+    }
 }

@@ -163,6 +163,11 @@ void Reactor::stopEventLoop()
     m_isStopLoop = true;
 }
 
+void Reactor::setStart()
+{
+    m_isStopLoop = false;
+}
+
 long long Reactor::registTimeEvent(long long milliseconds, TimeProc timeProc)
 {
     return m_timePool.createTimeEvent(milliseconds, timeProc);

@@ -155,6 +155,7 @@ public:
   void setLogger(Logger* logger);
   
   void runClient();
+  void stopClient();
 };
 
 #endif // __CLIENT_H__
