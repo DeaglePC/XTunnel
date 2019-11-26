@@ -63,6 +63,8 @@ int Server::listenControl()
             std::placeholders::_2
         )
     );
+
+    return 0;
 }
 
 int Server::listenProxy()
@@ -92,6 +94,8 @@ int Server::listenProxy()
             std::placeholders::_2
         )
     );
+
+    return 0;
 }
 
 void Server::initServer()

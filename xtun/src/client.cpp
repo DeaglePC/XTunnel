@@ -644,6 +644,8 @@ int Client::sendProxyInfo(int porxyFd, int userId)
         m_pLogger->err("sendProxyInfo err: %d", errno);
         return -1;
     }
+
+    return 0;
 }
 
 void Client::replyNewProxy(int userId, bool isSuccess)
