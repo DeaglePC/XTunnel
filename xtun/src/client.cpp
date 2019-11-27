@@ -403,7 +403,7 @@ void Client::localReadDataProc(int fd, int mask)
 {
     int proxyFd = m_mapLocalConn[fd].proxyFd;
 
-    if (m_mapProxyConn[proxyFd].sendSize == sizeof(m_mapProxyConn[proxyFd].sendBuf))
+    if (m_mapProxyConn[proxyFd].sendSize >= MAX_BUF_SIZE)
     {
         printf("proxy send buf full\n");
         m_pLogger->warn("proxy send buf full");

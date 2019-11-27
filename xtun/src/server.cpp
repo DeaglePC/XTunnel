@@ -696,6 +696,13 @@ void Server::proxySafeRecv(int fd, std::function<void(int fd, size_t dataSize)> 
     // there is not header init if data len is 0
     size_t targetSize = m_mapProxy[fd].header.ensureTargetDataSize();
 
+    if (m_mapProxy[fd].recvNum >= MAX_BUF_SIZE)
+    {
+        printf("proxySafeRecv recv buf full!\n");
+        m_pLogger->warn("proxySafeRecv recv buf full!");
+        return;
+    }
+
     ret = recv(fd, m_mapProxy[fd].recvBuf + m_mapProxy[fd].recvNum,
                 targetSize - m_mapProxy[fd].recvNum, MSG_DONTWAIT);
     

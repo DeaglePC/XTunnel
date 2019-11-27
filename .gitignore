@@ -34,8 +34,4 @@
 # vscode
 .vscode
 .vs
-xtun/bin/tunclient
-xtun/bin/tunclient_g
-xtun/bin/tunserver
-xtun/bin/tunserver_g
-xtun/bin/testcrpt
+xtun/bin/
