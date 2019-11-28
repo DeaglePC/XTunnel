@@ -176,14 +176,16 @@ int main(int argc, char *argv[])
     g_pClient->setPassword(g_cfg.password.c_str());
     g_pClient->setProxyPort(g_cfg.proxyPort);
 
-    size_t retryCnt = 0;
+    size_t retryCnt = 0, sleepSec;
     while (1)
     {
         g_pClient->runClient();
         
         printf("reconnect server...  %lu\n", retryCnt);
         g_logger.info("reconnect server... %lu times", ++retryCnt);
-        sleep(10 * retryCnt);   // seconds
+
+        sleepSec = retryCnt < 6 ? 10 * retryCnt : 60;
+        sleep(sleepSec);   // seconds
     }
     
     delete g_pClient;
