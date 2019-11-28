@@ -181,9 +181,9 @@ int main(int argc, char *argv[])
     {
         g_pClient->runClient();
         
-        sleep(2);   // 2 seconds
         printf("reconnect server...  %lu\n", retryCnt);
         g_logger.info("reconnect server... %lu times", ++retryCnt);
+        sleep(10 * retryCnt);   // seconds
     }
     
     delete g_pClient;
