@@ -139,7 +139,7 @@ void Server::serverAcceptProc(int fd, int mask)
         printf("serverAcceptProc new conn from %s:%d\n", ip, port);
         m_pLogger->info("new client connection from %s:%d", ip, port);
 
-        m_mapClients[connfd] = ClientInfo();
+        m_mapClients[connfd];
         tnet::non_block(connfd);
         m_reactor.registFileEvent(
             connfd, 
@@ -466,9 +466,8 @@ void Server::userAcceptProc(int fd, int mask)
         }
         printf("userAcceptProc new conn from %s:%d\n", ip, port);
         m_pLogger->info("new user connection from %s:%d", ip, port);
-        UserInfo info;
-        info.port = m_mapListen[fd].port;
-        m_mapUsers[connfd] = info;
+
+        m_mapUsers[connfd].port = m_mapListen[fd].port;
         tnet::non_block(connfd);
         sendClientNewProxy(m_mapListen[fd].clientFd, connfd, m_mapListen[fd].port);
     }
@@ -679,10 +678,10 @@ void Server::proxyAcceptProc(int fd, int mask)
         }
         printf("proxyAcceptProc new conn from %s:%d\n", ip, port);
         m_pLogger->info("new proxy connection from %s:%d", ip, port);
-        ProxyConnInfo pci;
-        pci.recvNum = 0;
-        pci.recvSize = sizeof(int);
-        m_mapProxy[connfd] = pci;
+
+        m_mapProxy[connfd].recvNum = 0;
+        m_mapProxy[connfd].recvSize = sizeof(int);
+        
         tnet::non_block(connfd);
         m_reactor.registFileEvent(connfd, EVENT_READABLE,
                                   std::bind(&Server::proxyReadUserInfoProc,

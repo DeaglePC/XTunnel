@@ -379,13 +379,8 @@ void Client::makeNewProxy(NewProxyMsg newProxy)
         return;
     }
 
-    ProxyConnInfo pci;
-    pci.localFd = localFd;
-    m_mapProxyConn[proxyFd] = pci;
-
-    LocalConnInfo lci;
-    lci.proxyFd = proxyFd;
-    m_mapLocalConn[localFd] = lci;
+    m_mapProxyConn[proxyFd].localFd = localFd;
+    m_mapLocalConn[localFd].proxyFd = proxyFd;
 
     replyNewProxy(newProxy.UserId, true);
     sendProxyInfo(proxyFd, newProxy.UserId);
