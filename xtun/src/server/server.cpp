@@ -1,7 +1,10 @@
-#include "server.h"
 #include <netinet/in.h>
 #include <cstring>
-#include "md5.h"
+
+#include "server.h"
+
+#include "../third_part/md5.h"
+
 
 Server::Server(unsigned short port, unsigned short proxyPort)
     : m_serverSocketFd(-1), m_serverPort(port), m_proxyPort(proxyPort), m_pLogger(nullptr)

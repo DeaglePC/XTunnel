@@ -1,13 +1,16 @@
 #ifndef __CLIENT_H__
 #define __CLIENT_H__
+
 #include <netinet/in.h>
 #include <vector>
 #include <unordered_map>
 
-#include "reactor.h"
-#include "msgdata.h"
-#include "logger.h"
-#include "cryptor.h"
+#include "../msg/msgdata.h"
+#include "../msg/cryptor.h"
+
+#include "../net/reactor.h"
+#include "../third_part/logger.h"
+
 
 extern const size_t PW_MAX_LEN; // len of md5
 extern const size_t MAX_BUF_SIZE;

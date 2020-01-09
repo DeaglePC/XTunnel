@@ -1,7 +1,7 @@
 #ifndef __MSGDATA_H__
 #define __MSGDATA_H__
 
-#include "aes.h"
+#include "../third_part/aes.h"
 #include "cryptor.h"
 
 const size_t PW_MAX_LEN = 32; // len of md5

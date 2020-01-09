@@ -1,8 +1,11 @@
-#include "client.h"
 #include <cstring>
 #include <string>
-#include "tnet.h"
-#include "md5.h"
+
+#include "client.h"
+
+#include "../net/tnet.h"
+#include "../third_part/md5.h"
+
 
 Client::Client(const char *sip, unsigned short sport) : m_clientSocketFd(-1), m_pLogger(nullptr)
 {

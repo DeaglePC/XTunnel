@@ -5,11 +5,13 @@
 #include <unordered_map>
 #include <vector>
 
-#include "tnet.h"
-#include "reactor.h"
-#include "msgdata.h"
-#include "logger.h"
-#include "cryptor.h"
+#include "../msg/msgdata.h"
+#include "../msg/cryptor.h"
+
+#include "../net/tnet.h"
+#include "../net/reactor.h"
+#include "../third_part/logger.h"
+
 
 const unsigned short DEFAULT_PORT = 10086;
 const unsigned short DEFAULT_PROXY_PORT = 10001;
