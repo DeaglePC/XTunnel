@@ -35,3 +35,8 @@
 .vscode
 .vs
 xtun/bin/
+
+CMakeFiles
+cmake_install.cmake
+MakeFile
+CMakeCache.txt
