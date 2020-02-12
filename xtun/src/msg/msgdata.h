@@ -13,7 +13,8 @@ enum MSGTYPE
     MSGTYPE_HEARTBEAT = 1, // 心跳
     MSGTYPE_NEW_PROXY,     // 服务端-》客户端，建立一个新的代理连接
     MSGTYPE_REPLY_NEW_PROXY,// 客户端-》 服务端， 返回是否成功建立连接
-    MSGTYPE_CLIENT_APP_DATA // 客户端发来的应用数据
+    MSGTYPE_CLIENT_APP_DATA, // 客户端发来的应用数据
+    MSGTYPE_LOCAL_DOWN      // 本地应用断开连接
 };
 
 struct MsgData

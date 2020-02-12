@@ -430,6 +430,7 @@ void Client::localReadDataProc(int fd, int mask)
     }
     else if (numRecv == 0)
     {
+        tellServerLocalDown(fd);
         deleteLocalConn(fd);
     }
     else if (numRecv > 0)
@@ -517,6 +518,55 @@ void Client::localWriteDataProc(int fd, int mask)
     }
 }
 
+void Client::tellServerLocalDown(int lfd)
+{
+    MsgData msgData;
+    msgData.type = MSGTYPE_LOCAL_DOWN;
+    msgData.userid = m_mapLocalConn[lfd].userId;
+    msgData.size = 0;
+
+    m_clientData.sendSize += MsgUtil::packCryptedData(
+        m_pCryptor, 
+        (uint8_t*)m_clientData.sendBuf + m_clientData.sendSize, 
+        (uint8_t*)&msgData,
+        sizeof(msgData)
+    );
+
+    m_reactor.registFileEvent(
+        m_clientSocketFd,
+        EVENT_WRITABLE,
+        std::bind(
+            &Client::tellServerLocalDownProc,
+            this,
+            std::placeholders::_1,
+            std::placeholders::_2
+        )
+    );
+}
+
+void Client::tellServerLocalDownProc(int fd, int mask)
+{
+    if (!(mask & EVENT_WRITABLE))
+    {
+        return;
+    }
+
+    serverSafeSend(
+        fd, 
+        std::bind(
+            &Client::ontellServerLocalDownDone,
+            this,
+            std::placeholders::_1
+        )
+    );
+}
+
+void Client::ontellServerLocalDownDone(int fd)
+{
+    m_reactor.removeFileEvent(fd, EVENT_WRITABLE);
+    printf("ontellServerLocalDownDone\n");
+}
+
 void Client::deleteLocalConn(int fd)
 {
     m_mapUsers.erase(m_mapLocalConn[fd].userId);
@@ -573,7 +623,7 @@ void Client::replyNewProxyProc(int fd, int mask)
     }
 
     serverSafeSend(
-        m_clientSocketFd, 
+        fd, 
         std::bind(
             &Client::onReplyNewProxyDone,
             this,

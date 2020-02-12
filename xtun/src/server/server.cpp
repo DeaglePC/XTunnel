@@ -584,6 +584,10 @@ void Server::processClientBuf(int cfd, size_t dataSize)
             )
         );
     }
+    else if (msgData.type == MSGTYPE_LOCAL_DOWN)
+    {
+        deleteUser(msgData.userid);
+    }
 }
 
 void Server::sendHeartbeat(int cfd)

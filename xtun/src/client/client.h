@@ -130,6 +130,9 @@ private:
   void localWriteDataProc(int fd, int mask);
   // void proxyReadDataProc(int fd, int mask);
   // void proxyWriteDataProc(int fd, int mask);
+  void tellServerLocalDown(int fd);
+  void tellServerLocalDownProc(int fd, int mask);
+  void ontellServerLocalDownDone(int fd);
 
   void deleteLocalConn(int fd);
 
