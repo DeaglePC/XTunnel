@@ -335,6 +335,15 @@ void Client::onClientReadDone(size_t dataSize)
     {
         int ufd = msgData.userid;
         int localFd = m_mapUsers[ufd].localFd;
+
+        if (m_mapLocalConn[localFd].isSendBufFull())
+        {
+            tellServerLocalDown(localFd);
+            deleteLocalConn(localFd);
+            m_pLogger->err("local: %d send buf is full!", localFd);
+            return;
+        }
+
         memcpy(
             m_mapLocalConn[localFd].currSendBufAddr(),
             m_clientData.recvBuf + sizeof(MsgData),
@@ -352,6 +361,10 @@ void Client::onClientReadDone(size_t dataSize)
                 std::placeholders::_2
             )
         );
+    }
+    else if (msgData.type == MSGTYPE_USER_DOWN)
+    {
+        deleteLocalConn(m_mapUsers[msgData.userid].localFd);
     }
 }
 
@@ -527,7 +540,7 @@ void Client::tellServerLocalDown(int lfd)
 
     m_clientData.sendSize += MsgUtil::packCryptedData(
         m_pCryptor, 
-        (uint8_t*)m_clientData.sendBuf + m_clientData.sendSize, 
+        (uint8_t*)m_clientData.currSendBufAddr(), 
         (uint8_t*)&msgData,
         sizeof(msgData)
     );

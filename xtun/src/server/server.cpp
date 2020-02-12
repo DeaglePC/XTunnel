@@ -571,7 +571,9 @@ void Server::processClientBuf(int cfd, size_t dataSize)
         if (m_mapUsers[ufd].isSendBufFull())
         {
             // TODO tell client user down
+            tellClientUserDown(ufd);
             deleteUser(ufd);
+            m_pLogger->err("user: %d send buf is full!", ufd);
             return;
         }
 
@@ -598,6 +600,57 @@ void Server::processClientBuf(int cfd, size_t dataSize)
     {
         deleteUser(msgData.userid);
     }
+}
+
+void Server::tellClientUserDown(int ufd)
+{
+    int cfd = m_mapUsers[ufd].cfd;
+
+    MsgData msgData;
+    msgData.type = MSGTYPE_USER_DOWN;
+    msgData.userid = ufd;
+    msgData.size = 0;
+
+    m_mapClients[cfd].sendSize += MsgUtil::packCryptedData(
+        m_pCryptor, 
+        (uint8_t*)m_mapClients[cfd].currSendBufAddr(), 
+        (uint8_t*)&msgData,
+        sizeof(msgData)
+    );
+
+    m_reactor.registFileEvent(
+        cfd,
+        EVENT_WRITABLE,
+        std::bind(
+            &Server::tellClientUserDownProc,
+            this,
+            std::placeholders::_1,
+            std::placeholders::_2
+        )
+    );
+}
+
+void Server::tellClientUserDownProc(int cfd, int mask)
+{
+    if (!(mask & EVENT_WRITABLE))
+    {
+        return;
+    }
+
+    clitneSafeSend(
+        cfd, 
+        std::bind(
+            &Server::onTellClientUserDownDone,
+            this,
+            std::placeholders::_1
+        )
+    );
+}
+
+void Server::onTellClientUserDownDone(int cfd)
+{
+    m_reactor.removeFileEvent(cfd, EVENT_WRITABLE);
+    printf("onTellClientUserDownDone\n");
 }
 
 void Server::sendHeartbeat(int cfd)

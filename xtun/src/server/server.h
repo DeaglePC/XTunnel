@@ -170,6 +170,10 @@ private:
   void sendUserDataProc(int fd, int mask);  // 把用户发来的数据给客户端发过去
   void onSendUserDataDone(int fd);  // 发送完成时的回调
 
+  void tellClientUserDown(int ufd);
+  void tellClientUserDownProc(int cfd, int mask);
+  void onTellClientUserDownDone(int cfd);
+
   void initClient(int fd);
   void deleteClient(int fd);
   void deleteUser(int fd);
