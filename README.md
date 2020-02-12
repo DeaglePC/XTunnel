@@ -9,7 +9,7 @@ io模型采用reactor模式的事件驱动模型，实现方法参考redis源码
 git clone https://github.com/DeaglePC/XTunnel.git && cd XTunnel/xtun/ && cmake -DCMAKE_BUILD_TYPE=Release . && make
 ```
 * OR 下载安装  
-[点我下载]()
+[点我下载](https://github.com/DeaglePC/XTunnel/releases/download/0.2/XTunnel_0.2_linux_x86_64.zip)
 
 
 ## 编辑配置文件
