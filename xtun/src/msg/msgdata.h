@@ -12,14 +12,16 @@ enum MSGTYPE
 {
     MSGTYPE_HEARTBEAT = 1, // 心跳
     MSGTYPE_NEW_PROXY,     // 服务端-》客户端，建立一个新的代理连接
-    MSGTYPE_REPLY_NEW_PROXY// 客户端-》 服务端， 返回是否成功建立连接
+    MSGTYPE_REPLY_NEW_PROXY,// 客户端-》 服务端， 返回是否成功建立连接
+    MSGTYPE_CLIENT_APP_DATA // 客户端发来的应用数据
 };
 
 struct MsgData
 {
-    int type; // 消息类型
-    int size; // 结构体之后的数据大小
-    MsgData() : type(-1), size(0) {}
+    int type{-1}; // 消息类型
+    int size{0}; // 结构体之后的数据大小
+    int userid{0};
+    //MsgData() : type(-1), size(0) {}
 };
 
 struct NewProxyMsg
@@ -30,7 +32,7 @@ struct NewProxyMsg
 
 struct ReplyNewProxyMsg
 {
-    int UserId;
+    //int UserId;
     bool IsSuccess;
 };
 

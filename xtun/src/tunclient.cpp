@@ -18,7 +18,6 @@ bool g_isBackground = false; // 是否后台运行
 struct ConfigServer
 {
     unsigned short serverPort;
-    unsigned short proxyPort;
     std::string password;
     std::string serverIp;
     std::string logPath;
@@ -35,7 +34,7 @@ void readConfig(const char *configFile)
         exit(-1);
     }
     string serverIp, password, logPath;
-    int serverPort, proxyPort;
+    int serverPort;
     ret = iniFile.GetStringValue(common, "server_ip", &serverIp);
     if(ret != 0)
     {
@@ -54,12 +53,6 @@ void readConfig(const char *configFile)
         printf("config file cann't find server_port\n");
         exit(-1);
     }
-    ret = iniFile.GetIntValue(common, "proxy_port", &proxyPort);
-    if(ret != 0)
-    {
-        printf("config file cann't find proxy_port\n");
-        exit(-1);
-    }
     ret = iniFile.GetStringValue(common, "log_path", &logPath);
     if(ret != 0)
     {
@@ -70,7 +63,6 @@ void readConfig(const char *configFile)
     g_cfg.password = password;
     g_cfg.serverIp = serverIp;
     g_cfg.serverPort = serverPort;
-    g_cfg.proxyPort = proxyPort;
     g_cfg.logPath = logPath;
 
     std::vector<string> sections;
@@ -174,7 +166,6 @@ int main(int argc, char *argv[])
     g_pClient->setLogger(&g_logger);
     g_pClient->setProxyConfig(pcs);
     g_pClient->setPassword(g_cfg.password.c_str());
-    g_pClient->setProxyPort(g_cfg.proxyPort);
 
     size_t retryCnt = 0, sleepSec;
     while (1)

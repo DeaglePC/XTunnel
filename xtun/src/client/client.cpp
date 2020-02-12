@@ -27,11 +27,6 @@ Client::~Client()
         m_reactor.removeFileEvent(m_clientSocketFd, EVENT_READABLE | EVENT_WRITABLE);
     }
 
-    for (const auto &it : m_mapProxyConn)
-    {
-        m_reactor.removeFileEvent(it.first, EVENT_READABLE | EVENT_WRITABLE);
-        close(it.first);
-    }
     for (const auto &it : m_mapLocalConn)
     {
         m_reactor.removeFileEvent(it.first, EVENT_READABLE | EVENT_WRITABLE);
@@ -261,6 +256,7 @@ void Client::serverSafeRecv(int sfd, std::function<void(size_t dataSize)> callba
     }
 }
 
+// 先加密，在把数据放到m_clientData.sendBuf+m_clientData.sendSize的位置即可
 void Client::serverSafeSend(int fd, std::function<void(int fd)> callback)
 {
     int ret = send(fd, &m_clientData.sendBuf, m_clientData.sendSize, MSG_DONTWAIT);
@@ -284,6 +280,7 @@ void Client::serverSafeSend(int fd, std::function<void(int fd)> callback)
         }
         else
         {
+            printf("+++++++++++++++++++++++++++++!\n");
             memmove(
                 m_clientData.sendBuf, 
                 m_clientData.sendBuf + ret, 
@@ -334,6 +331,28 @@ void Client::onClientReadDone(size_t dataSize)
 
         makeNewProxy(newProxy);
     }
+    else if (msgData.type == MSGTYPE_CLIENT_APP_DATA)
+    {
+        int ufd = msgData.userid;
+        int localFd = m_mapUsers[ufd].localFd;
+        memcpy(
+            m_mapLocalConn[localFd].sendBuf + m_mapLocalConn[localFd].sendSize,
+            m_clientData.recvBuf + sizeof(MsgData),
+            msgData.size
+        );
+        m_mapLocalConn[localFd].sendSize += msgData.size;
+
+        m_reactor.registFileEvent(
+            localFd,
+            EVENT_WRITABLE,
+            std::bind(
+                &Client::localWriteDataProc,
+                this,
+                std::placeholders::_1, 
+                std::placeholders::_2
+            )
+        );
+    }
 }
 
 void Client::processHeartbeat()
@@ -367,7 +386,7 @@ int Client::checkHeartbeatTimerProc(long long id)
  * 3.反馈给服务端结果
  * 4.向代理服务器发送此次连接对应哪个userid，然后此连接只用做转发数据
  */
-void Client::makeNewProxy(NewProxyMsg newProxy)
+void Client::makeNewProxy(const NewProxyMsg &newProxy)
 {
     int localFd = connectLocalApp(newProxy.rmeotePort);
     if (localFd == -1)
@@ -375,41 +394,31 @@ void Client::makeNewProxy(NewProxyMsg newProxy)
         replyNewProxy(newProxy.UserId, false);
         return;
     }
-    int proxyFd = connectServerProxy();
-    if (proxyFd == -1)
-    {
-        replyNewProxy(newProxy.UserId, false);
-        return;
-    }
 
-    m_mapProxyConn[proxyFd].localFd = localFd;
-    m_mapLocalConn[localFd].proxyFd = proxyFd;
-
+    printf("###uid: %d\n", newProxy.UserId);
+    m_mapLocalConn[localFd].userId = newProxy.UserId;
     replyNewProxy(newProxy.UserId, true);
-    sendProxyInfo(proxyFd, newProxy.UserId);
 
+    m_mapUsers[newProxy.UserId].localFd = localFd; 
     // TODO regist event
     m_reactor.registFileEvent(localFd, EVENT_READABLE,
                               std::bind(&Client::localReadDataProc,
                                         this, std::placeholders::_1, std::placeholders::_2));
-    m_reactor.registFileEvent(proxyFd, EVENT_READABLE,
-                              std::bind(&Client::proxyReadDataProc,
-                                        this, std::placeholders::_1, std::placeholders::_2));
 }
 
+// send local app data to server ======================================= start
 void Client::localReadDataProc(int fd, int mask)
 {
-    int proxyFd = m_mapLocalConn[fd].proxyFd;
-
-    if (m_mapProxyConn[proxyFd].sendSize >= MAX_BUF_SIZE)
+    auto recvOffset = m_clientData.sendSize + sizeof(MsgData);
+    if (recvOffset >= MAX_BUF_SIZE)
     {
         printf("proxy send buf full\n");
         m_pLogger->warn("proxy send buf full");
         return;
     }
 
-    int numRecv = recv(fd, m_mapProxyConn[proxyFd].sendBuf + m_mapProxyConn[proxyFd].sendSize,
-                       MAX_BUF_SIZE - m_mapProxyConn[proxyFd].sendSize, MSG_DONTWAIT);
+    int numRecv = recv(fd, m_clientData.sendBuf + recvOffset,
+                       MAX_BUF_SIZE - recvOffset, MSG_DONTWAIT);
     if (numRecv == -1)
     {
         if (errno != EAGAIN && EAGAIN != EWOULDBLOCK)
@@ -421,166 +430,62 @@ void Client::localReadDataProc(int fd, int mask)
     }
     else if (numRecv == 0)
     {
-        deleteProxyConn(proxyFd);
         deleteLocalConn(fd);
     }
     else if (numRecv > 0)
     {
-        m_mapProxyConn[proxyFd].sendSize += MsgUtil::packCryptedData(
+        MsgData msgData;
+        msgData.type = MSGTYPE_CLIENT_APP_DATA;
+        msgData.size = numRecv;
+        msgData.userid = m_mapLocalConn[fd].userId;
+        memcpy(m_clientData.sendBuf + m_clientData.sendSize, &msgData, sizeof(msgData));
+
+        m_clientData.sendSize += MsgUtil::packCryptedData(
             m_pCryptor,
-            (uint8_t*)m_mapProxyConn[proxyFd].sendBuf + m_mapProxyConn[proxyFd].sendSize,
-            (uint8_t*)m_mapProxyConn[proxyFd].sendBuf + m_mapProxyConn[proxyFd].sendSize,
-            numRecv
+            (uint8_t*)m_clientData.sendBuf + m_clientData.sendSize,
+            (uint8_t*)m_clientData.sendBuf + m_clientData.sendSize,
+            numRecv + sizeof(msgData)
         );
 
         m_reactor.registFileEvent(
-            proxyFd, 
+            m_clientSocketFd, 
             EVENT_WRITABLE,
             std::bind(
-                &Client::proxyWriteDataProc,
+                &Client::sendLocalDataProc,
                 this, 
                 std::placeholders::_1, 
                 std::placeholders::_2
             )
         );
         
-        printf("localReadDataProc: recv from local: %d, proxy snedSize: %d\n", numRecv, m_mapProxyConn[proxyFd].sendSize);
+        printf("localReadDataProc: recv from local: %d, client snedSize: %d\n", numRecv, m_clientData.sendSize);
     }
 }
 
-void Client::proxyWriteDataProc(int fd, int mask)
+void Client::sendLocalDataProc(int fd, int mask)
 {
-    int numSend = send(fd, m_mapProxyConn[fd].sendBuf, m_mapProxyConn[fd].sendSize, MSG_DONTWAIT);
-    if (numSend > 0)
-    {
-        if (numSend == m_mapProxyConn[fd].sendSize)
-        {
-            m_reactor.removeFileEvent(fd, EVENT_WRITABLE);
-            m_mapProxyConn[fd].sendSize = 0;
-            printf("proxyWriteDataProc: send all data: %d\n", numSend);
-        }
-        else
-        {
-            size_t newSize = m_mapProxyConn[fd].sendSize - numSend;
-            m_mapProxyConn[fd].sendSize = newSize;
-            memmove(m_mapProxyConn[fd].sendBuf, m_mapProxyConn[fd].sendBuf + numSend, newSize);
-            printf("proxyWriteDataProc: send partial data: %d, left:%lu\n", numSend, newSize);
-        }
-    }
-    else
-    {
-        if (errno != EAGAIN && EAGAIN != EWOULDBLOCK)
-        {
-            printf("proxyWriteDataProc send err:%d\n", errno);
-            m_pLogger->err("proxyWriteDataProc send err:%d\n", errno);
-        }
-    }
-}
-
-void Client::proxySafeRecv(
-    int fd, 
-    std::function<void(int fd, size_t dataSize)> callback)
-{
-    int ret;
-    // there is not header init if data len is 0
-    size_t targetSize = m_mapProxyConn[fd].header.ensureTargetDataSize();
-
-    ret = recv(fd, m_mapProxyConn[fd].recvBuf + m_mapProxyConn[fd].recvNum,
-                targetSize - m_mapProxyConn[fd].recvNum, MSG_DONTWAIT);
-    if (ret == -1)
-    {
-        if (errno != EAGAIN && EAGAIN != EWOULDBLOCK)
-        {
-            printf("proxySafeRecv recv err: %d\n", errno);
-            m_pLogger->err("proxySafeRecv recv err: %d", errno);
-            return;
-        }
-    }
-    else if (ret == 0)
-    {
-        deleteProxyConn(fd);
-        deleteLocalConn(m_mapProxyConn[fd].localFd);
-    }
-    else if (ret > 0)
-    {
-        m_mapProxyConn[fd].recvNum += ret;
-
-        if (m_mapProxyConn[fd].recvNum == targetSize)
-        {
-            m_mapProxyConn[fd].recvNum = 0;
-
-            // targetSize = header size or data size
-            if (targetSize == sizeof(DataHeader))
-            {
-                memcpy(&m_mapProxyConn[fd].header, m_mapProxyConn[fd].recvBuf, targetSize);
-            }
-            else
-            {
-                uint32_t realDataSize = m_pCryptor->decrypt(
-                    m_mapProxyConn[fd].header.iv, 
-                    (uint8_t*)m_mapProxyConn[fd].recvBuf, 
-                    targetSize
-                );
-
-                // if recv all done, we callback
-                callback(fd, realDataSize);
-
-                // remember init datalen for next recv
-                m_mapProxyConn[fd].header.dataLen = 0;
-            }
-        }
-    }
-}
-
-void Client::proxyReadDataProc(int fd, int mask)
-{
-    if (!(mask & EVENT_READABLE))
+    if (!(mask & EVENT_WRITABLE))
     {
         return;
     }
 
-    proxySafeRecv(
-        fd,
+    serverSafeSend(
+        fd, 
         std::bind(
-            &Client::onProxyReadDataDone,
+            &Client::onSendLocalDataDone,
             this,
-            std::placeholders::_1, 
-            std::placeholders::_2
+            std::placeholders::_1
         )
     );
 }
 
-// send to local
-void Client::onProxyReadDataDone(int fd, size_t dataSize)
+void Client::onSendLocalDataDone(int fd)
 {
-    int localFd = m_mapProxyConn[fd].localFd;
-
-    if (m_mapLocalConn[localFd].sendSize + dataSize >= sizeof(m_mapLocalConn[localFd].sendBuf))
-    {
-        printf("local send buf full\n");
-        m_pLogger->warn("local send buf full");
-        return;
-    }
-
-    memcpy(
-        m_mapLocalConn[localFd].sendBuf + m_mapLocalConn[localFd].sendSize, 
-        m_mapProxyConn[fd].recvBuf, 
-        dataSize
-    );
-    m_mapLocalConn[localFd].sendSize += dataSize;
-
-    // duplicated regist is fine
-    m_reactor.registFileEvent(
-        localFd,
-        EVENT_WRITABLE,
-        std::bind(
-            &Client::localWriteDataProc,
-            this, 
-            std::placeholders::_1, 
-            std::placeholders::_2
-        )
-    );
+    m_reactor.removeFileEvent(fd, EVENT_WRITABLE);
+    printf("onSendLocalDataDone\n");
 }
+// send local app data to server ======================================= end
+
 
 void Client::localWriteDataProc(int fd, int mask)
 {
@@ -612,38 +517,15 @@ void Client::localWriteDataProc(int fd, int mask)
     }
 }
 
-void Client::deleteProxyConn(int fd)
-{
-    m_mapProxyConn.erase(fd);
-    close(fd);
-    m_reactor.removeFileEvent(fd, EVENT_WRITABLE | EVENT_READABLE);
-    printf("deleted proxy conn: %d\n", fd);
-    m_pLogger->info("deleted proxy conn: %d", fd);
-}
-
 void Client::deleteLocalConn(int fd)
 {
+    m_mapUsers.erase(m_mapLocalConn[fd].userId);
     m_mapLocalConn.erase(fd);
     close(fd);
     m_reactor.removeFileEvent(fd, EVENT_WRITABLE | EVENT_READABLE);
+
     printf("deleted local conn: %d\n", fd);
     m_pLogger->info("deleted local conn: %d", fd);
-}
-
-int Client::sendProxyInfo(int porxyFd, int userId)
-{
-    char buf[MsgUtil::ensureCryptedDataSize(sizeof(userId))];
-    size_t dataSize = MsgUtil::packCryptedData(m_pCryptor, (uint8_t*)buf, (uint8_t*)&userId, sizeof(userId));
-
-    int ret = send(porxyFd, buf, dataSize, MSG_DONTWAIT);
-    if (ret != dataSize)
-    {
-        printf("sendProxyInfo err: %d\n", errno);
-        m_pLogger->err("sendProxyInfo err: %d", errno);
-        return -1;
-    }
-
-    return 0;
 }
 
 void Client::replyNewProxy(int userId, bool isSuccess)
@@ -651,10 +533,12 @@ void Client::replyNewProxy(int userId, bool isSuccess)
     MsgData msgData;
     ReplyNewProxyMsg replyMsg;
 
-    replyMsg.UserId = userId;
+    // replyMsg.UserId = userId;
     replyMsg.IsSuccess = isSuccess;
     msgData.type = MSGTYPE_REPLY_NEW_PROXY;
     msgData.size = sizeof(replyMsg);
+
+    printf("~~~~~~~ userId: %d\n", userId);
 
     size_t bufSize = sizeof(msgData) + sizeof(replyMsg);
     char buf[bufSize];
@@ -662,9 +546,9 @@ void Client::replyNewProxy(int userId, bool isSuccess)
     memcpy(buf, &msgData, sizeof(msgData));
     memcpy(buf + sizeof(msgData), &replyMsg, sizeof(replyMsg));
 
-    m_clientData.sendSize = MsgUtil::packCryptedData(
+    m_clientData.sendSize += MsgUtil::packCryptedData(
         m_pCryptor, 
-        (uint8_t*)m_clientData.sendBuf, 
+        (uint8_t*)m_clientData.sendBuf + m_clientData.sendSize, 
         (uint8_t*)buf,
         bufSize
     );
@@ -733,22 +617,6 @@ int Client::connectLocalApp(unsigned short remotePort)
     return ret;
 }
 
-int Client::connectServerProxy()
-{
-    int fd = tnet::tcp_socket();
-    if (fd == -1)
-    {
-        return -1;
-    }
-    //tnet::non_block(fd);
-    int ret = tnet::connect(fd, m_serverIp, m_serverProxyPort);
-    if (ret == -1)
-    {
-        return -1;
-    }
-    return fd;
-}
-
 int Client::sendHeartbeatTimerProc(long long id)
 {
     MsgData heartData;
@@ -788,10 +656,6 @@ int Client::sendHeartbeatTimerProc(long long id)
     return HEARTBEAT_INTERVAL_MS;
 }
 
-void Client::setProxyPort(unsigned short proxyPort)
-{
-    m_serverProxyPort = proxyPort;
-}
 
 void Client::setProxyConfig(const std::vector<ProxyInfo> &pcs)
 {
@@ -890,11 +754,6 @@ void Client::stopClient()
         m_reactor.removeFileEvent(m_clientSocketFd, EVENT_READABLE | EVENT_WRITABLE);
     }
 
-    for (const auto &it : m_mapProxyConn)
-    {
-        m_reactor.removeFileEvent(it.first, EVENT_READABLE | EVENT_WRITABLE);
-        close(it.first);
-    }
     for (const auto &it : m_mapLocalConn)
     {
         m_reactor.removeFileEvent(it.first, EVENT_READABLE | EVENT_WRITABLE);

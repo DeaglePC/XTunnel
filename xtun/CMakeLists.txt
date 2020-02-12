@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 2.8)
 project(xtun)
 
-set(CMAKE_BUILD_TYPE "Release")
+set(CMAKE_BUILD_TYPE "Debug")
 set(CMAKE_CXX_FLAGS_DEBUG "$ENV{CXXFLAGS} -O0 -Wall -g -ggdb")
 set(CMAKE_CXX_FLAGS_RELEASE "$ENV{CXXFLAGS} -O3 -Wall")
 
@@ -22,6 +22,7 @@ include_directories(
         ${CMAKE_CURRENT_LIST_DIR}/src/third_part
 )
 
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/bin/)
 
 add_executable(${SERVER_TARGET} ${CMAKE_CURRENT_LIST_DIR}/src/tunserver.cpp)
 target_link_libraries(${SERVER_TARGET} server msg net third_part)

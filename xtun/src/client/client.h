@@ -14,6 +14,7 @@
 
 extern const size_t PW_MAX_LEN; // len of md5
 extern const size_t MAX_BUF_SIZE;
+const size_t REAL_MAX_BUF_SIZE = MAX_BUF_SIZE + AES_BLOCKLEN + sizeof(DataHeader);
 
 const int HEARTBEAT_INTERVAL_MS = 1000; // 每次心跳的间隔时间
 const long DEFAULT_SERVER_TIMEOUT_MS = 5000; // 默认5秒没收到服务端的心跳表示服务端不在线
@@ -49,42 +50,34 @@ struct NetData
 
   DataHeader header;
 
-  char recvBuf[MAX_BUF_SIZE + AES_BLOCKLEN + sizeof(DataHeader)];
+  char recvBuf[REAL_MAX_BUF_SIZE];
 
   size_t sendNum;
   size_t sendSize;
-  char sendBuf[MAX_BUF_SIZE + AES_BLOCKLEN + sizeof(DataHeader)];
+  char sendBuf[REAL_MAX_BUF_SIZE];
   NetData() : recvNum(0), recvSize(0) {}
 };
 
 
-struct ProxyConnInfo
-{
-  int localFd;
-
-  int sendSize;
-  char sendBuf[MAX_BUF_SIZE + AES_BLOCKLEN + sizeof(DataHeader)];
-
-  DataHeader header;
-  size_t recvNum;
-  size_t recvSize;
-  char recvBuf[MAX_BUF_SIZE + AES_BLOCKLEN + sizeof(DataHeader)];
-
-  ProxyConnInfo() : sendSize(0), recvNum(0), recvSize(0) {}
-};
-using ProxyConnInfoMap = std::unordered_map<int, ProxyConnInfo>;
-
-
 struct LocalConnInfo
 {
-  int proxyFd;
+  int userId;
 
   size_t sendSize;
-  char sendBuf[MAX_BUF_SIZE + AES_BLOCKLEN + sizeof(DataHeader)];
+  char sendBuf[REAL_MAX_BUF_SIZE];
+
+  size_t recvSize;
+  char recvBuf[REAL_MAX_BUF_SIZE];
 
   LocalConnInfo() : sendSize(0) {}
 };
 using LocalConnInfoMap = std::unordered_map<int, LocalConnInfo>;
+
+struct UserInfo
+{
+  int localFd{-1};
+};
+using UserInfoMap = std::unordered_map<int, UserInfo>;
 
 
 class Client
@@ -92,7 +85,7 @@ class Client
 private:
   std::vector<ProxyInfo> m_configProxy;
   unsigned short m_serverPort;
-  unsigned short m_serverProxyPort;
+  // unsigned short m_serverProxyPort;
   char m_serverIp[INET_ADDRSTRLEN];
   int m_clientSocketFd;
   char m_password[PW_MAX_LEN];
@@ -105,8 +98,8 @@ private:
   Reactor m_reactor;
   NetData m_clientData;
 
-  ProxyConnInfoMap m_mapProxyConn;
   LocalConnInfoMap m_mapLocalConn;
+  UserInfoMap m_mapUsers;
 
   Cryptor *m_pCryptor;
 
@@ -117,7 +110,7 @@ private:
   void onClientReadDone(size_t dataSize);
 
   int sendPorts();
-  void makeNewProxy(NewProxyMsg newProxy);
+  void makeNewProxy(const NewProxyMsg &newProxy);
   int connectLocalApp(unsigned short remotePort);
   int connectServerProxy();
 
@@ -125,19 +118,19 @@ private:
   void replyNewProxyProc(int fd, int mask);
   void onReplyNewProxyDone(int fd);
 
-  int sendProxyInfo(int porxyFd, int userId);
   int sendHeartbeatTimerProc(long long id);
   void processHeartbeat();  // 收到服务端的心跳做的处理
   int checkHeartbeatTimerProc(long long id);
 
-  void proxySafeRecv(int fd, std::function<void(int fd, size_t dataSize)> callback);
+  // void proxySafeRecv(int fd, std::function<void(int fd, size_t dataSize)> callback);
   void localReadDataProc(int fd, int mask);
-  void onProxyReadDataDone(int fd, size_t dataSize);
+  void sendLocalDataProc(int fd, int mask);
+  void onSendLocalDataDone(int fd);
+  // void onProxyReadDataDone(int fd, size_t dataSize);
   void localWriteDataProc(int fd, int mask);
-  void proxyReadDataProc(int fd, int mask);
-  void proxyWriteDataProc(int fd, int mask);
+  // void proxyReadDataProc(int fd, int mask);
+  // void proxyWriteDataProc(int fd, int mask);
 
-  void deleteProxyConn(int fd);
   void deleteLocalConn(int fd);
 
   int connectServer();
@@ -153,7 +146,6 @@ public:
   ~Client();
 
   void setProxyConfig(const std::vector<ProxyInfo> &pcs);
-  void setProxyPort(unsigned short proxyPort);
   void setPassword(const char *password);
   void setLogger(Logger* logger);
   

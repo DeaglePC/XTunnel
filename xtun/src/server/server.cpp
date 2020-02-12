@@ -6,8 +6,8 @@
 #include "../third_part/md5.h"
 
 
-Server::Server(unsigned short port, unsigned short proxyPort)
-    : m_serverSocketFd(-1), m_serverPort(port), m_proxyPort(proxyPort), m_pLogger(nullptr)
+Server::Server(unsigned short port)
+    : m_serverSocketFd(-1), m_serverPort(port), m_pLogger(nullptr)
 {
     initServer();
 }
@@ -70,37 +70,6 @@ int Server::listenControl()
     return 0;
 }
 
-int Server::listenProxy()
-{
-    m_proxySocketFd = tnet::tcp_socket();
-    if (m_proxySocketFd == NET_ERR)
-    {
-        printf("make proxy socker err!\n");
-        m_pLogger->err("make proxy socker err!");
-        return -1;
-    }
-
-    int ret = tnet::tcp_listen(m_proxySocketFd, m_proxyPort);
-    if (ret == NET_ERR)
-    {
-        printf("server listen err!\n");
-        m_pLogger->err("server listen err!");
-        return -1;
-    }
-
-    m_reactor.registFileEvent(
-        m_proxySocketFd, EVENT_READABLE,
-        std::bind(
-            &Server::proxyAcceptProc,
-            this,
-            std::placeholders::_1,
-            std::placeholders::_2
-        )
-    );
-
-    return 0;
-}
-
 void Server::initServer()
 {
     int ret = listenControl();
@@ -108,11 +77,7 @@ void Server::initServer()
     {
         exit(-1);
     }
-    ret = listenProxy();
-    if (ret == -1)
-    {
-        exit(-1);
-    }
+
     m_heartbeatTimerId = m_reactor.registTimeEvent(
         HEARTBEAT_INTERVAL_MS,
         std::bind(
@@ -143,6 +108,9 @@ void Server::serverAcceptProc(int fd, int mask)
         m_pLogger->info("new client connection from %s:%d", ip, port);
 
         m_mapClients[connfd];
+
+        printf("~!~!~!~!~!~! cfd: %d\n", connfd);
+
         tnet::non_block(connfd);
         m_reactor.registFileEvent(
             connfd, 
@@ -235,6 +203,7 @@ void Server::clitneSafeSend(int cfd, std::function<void(int cfd)> callback)
         }
         else
         {
+            printf("+++++++++++++++++++++++++++++!\n");
             memmove(
                 m_mapClients[cfd].sendBuf, 
                 m_mapClients[cfd].sendBuf + ret, 
@@ -245,6 +214,8 @@ void Server::clitneSafeSend(int cfd, std::function<void(int cfd)> callback)
 }
 // -----------------------------
 
+
+// =========================== auth start
 void Server::clientAuthProc(int cfd, int mask)
 {
     if (!(mask & EVENT_READABLE))
@@ -295,9 +266,9 @@ void Server::processClientAuthResult(int cfd, bool isGood)
         m_mapClients[cfd].status = CLIENT_STATUS_PW_WRONG;
     }
 
-    m_mapClients[cfd].sendSize = MsgUtil::packCryptedData(
+    m_mapClients[cfd].sendSize += MsgUtil::packCryptedData(
         m_pCryptor, 
-        (uint8_t*)m_mapClients[cfd].sendBuf, 
+        (uint8_t*)m_mapClients[cfd].sendBuf + m_mapClients[cfd].sendSize, 
         (uint8_t*)AUTH_TOKEN,
         sizeof(AUTH_TOKEN)
     );
@@ -354,6 +325,8 @@ void Server::onReplyClientAuthDone(int cfd)
         deleteClient(cfd);
     }
 }
+// =========================== auth end
+
 
 void Server::recvClientProxyPortsProc(int cfd, int mask)
 {
@@ -419,7 +392,7 @@ int Server::listenRemotePort(int cfd)
 {
     size_t len = m_mapClients[cfd].remotePorts.size();
     int num = 0;
-    for (int i = 0; i < len; i++)
+    for (size_t i = 0; i < len; i++)
     {
         int fd = tnet::tcp_socket();
         if (fd == -1)
@@ -471,7 +444,21 @@ void Server::userAcceptProc(int fd, int mask)
         m_pLogger->info("new user connection from %s:%d", ip, port);
 
         m_mapUsers[connfd].port = m_mapListen[fd].port;
+        m_mapUsers[connfd].cfd = m_mapListen[fd].clientFd;
+        printf("@@@@@ %d\n", connfd);
+        m_pLogger->warn("@@@@@ %d\n", connfd);
         tnet::non_block(connfd);
+
+        m_reactor.registFileEvent(
+            connfd,
+            EVENT_READABLE,
+            std::bind(
+                &Server::userReadDataProc, 
+                this, 
+                std::placeholders::_1, 
+                std::placeholders::_2
+            )
+        );
         sendClientNewProxy(m_mapListen[fd].clientFd, connfd, m_mapListen[fd].port);
     }
 }
@@ -492,6 +479,7 @@ void Server::sendClientNewProxy(int cfd, int ufd, unsigned short remotePort)
     memcpy(buf, &msgData, sizeof(msgData));
     memcpy(buf + sizeof(msgData), &newProxyMsg, sizeof(newProxyMsg));
 
+    printf("##### ufd: %d\n", ufd);
     m_mapClients[cfd].sendSize = MsgUtil::packCryptedData(
         m_pCryptor, 
         (uint8_t*)m_mapClients[cfd].sendBuf, 
@@ -568,9 +556,33 @@ void Server::processClientBuf(int cfd, size_t dataSize)
     else if (msgData.type == MSGTYPE_REPLY_NEW_PROXY)
     {
         ReplyNewProxyMsg rnpm;
-        memcpy(&rnpm, m_mapClients[cfd].recvBuf, msgData.size);
+        memcpy(&rnpm, m_mapClients[cfd].recvBuf + sizeof(MsgData), msgData.size);
 
-        processNewProxy(rnpm);
+        processNewProxy(rnpm, msgData.userid);
+    }
+    else if (msgData.type == MSGTYPE_CLIENT_APP_DATA)
+    {
+        int ufd = msgData.userid;
+        printf("$$$$$$$ ufd: %d\n", ufd);
+
+        memcpy(
+            m_mapUsers[ufd].sendBuf + m_mapUsers[ufd].sendSize,
+            m_mapClients[cfd].recvBuf + sizeof(MsgData),
+            msgData.size
+        );
+        m_mapUsers[ufd].sendSize += msgData.size;
+
+        // duplicated regist is ok
+        m_reactor.registFileEvent(
+            ufd,
+            EVENT_WRITABLE,
+            std::bind(
+                &Server::userWriteDataProc,
+                this, 
+                std::placeholders::_1, 
+                std::placeholders::_2
+            )
+        );
     }
 }
 
@@ -589,7 +601,7 @@ void Server::sendHeartbeat(int cfd)
     uint8_t buf[MsgUtil::ensureCryptedDataSize(dataSize)];
     uint32_t cryptedDataLen = MsgUtil::packCryptedData(m_pCryptor, buf, (uint8_t*)bufData, dataSize);
 
-    int ret = send(cfd, buf, cryptedDataLen, MSG_DONTWAIT);
+    auto ret = send(cfd, buf, cryptedDataLen, MSG_DONTWAIT);
     if (ret == -1)
     {
         if (errno != EAGAIN && errno != EWOULDBLOCK)
@@ -648,7 +660,7 @@ int Server::checkHeartbeatTimerProc(long long id)
     return HEARTBEAT_INTERVAL_MS;
 }
 
-void Server::processNewProxy(ReplyNewProxyMsg rnpm)
+void Server::processNewProxy(const ReplyNewProxyMsg &rnpm, int uid)
 {
     if (rnpm.IsSuccess)
     {
@@ -659,213 +671,10 @@ void Server::processNewProxy(ReplyNewProxyMsg rnpm)
     {
         printf("make proxy tunnel fail\n");
         m_pLogger->info("make proxy tunnel fail");
-        deleteUser(rnpm.UserId);
+        deleteUser(uid);
     }
 }
 
-void Server::proxyAcceptProc(int fd, int mask)
-{
-    if (mask & EVENT_READABLE)
-    {
-        char ip[INET_ADDRSTRLEN];
-        int port;
-        int connfd = tnet::tcp_accept(fd, ip, INET_ADDRSTRLEN, &port);
-        if (connfd == -1)
-        {
-            if (errno != EAGAIN && EAGAIN != EWOULDBLOCK)
-            {
-                printf("proxyAcceptProc accept err: %d\n", errno);
-                m_pLogger->err("proxyAcceptProc accept err: %d", errno);
-            }
-            return;
-        }
-        printf("proxyAcceptProc new conn from %s:%d\n", ip, port);
-        m_pLogger->info("new proxy connection from %s:%d", ip, port);
-
-        m_mapProxy[connfd].recvNum = 0;
-        m_mapProxy[connfd].recvSize = sizeof(int);
-        
-        tnet::non_block(connfd);
-        m_reactor.registFileEvent(connfd, EVENT_READABLE,
-                                  std::bind(&Server::proxyReadUserInfoProc,
-                                            this, std::placeholders::_1, std::placeholders::_2));
-    }
-}
-
-void Server::proxySafeRecv(int fd, std::function<void(int fd, size_t dataSize)> callback)
-{
-    int ret;
-    // there is not header init if data len is 0
-    size_t targetSize = m_mapProxy[fd].header.ensureTargetDataSize();
-
-    if (m_mapProxy[fd].recvNum >= MAX_BUF_SIZE)
-    {
-        printf("proxySafeRecv recv buf full!\n");
-        m_pLogger->warn("proxySafeRecv recv buf full!");
-        return;
-    }
-
-    ret = recv(fd, m_mapProxy[fd].recvBuf + m_mapProxy[fd].recvNum,
-                targetSize - m_mapProxy[fd].recvNum, MSG_DONTWAIT);
-    
-    if (ret == -1)
-    {
-        if (errno != EAGAIN && EAGAIN != EWOULDBLOCK)
-        {
-            printf("proxySafeRecv err: %d\n", errno);
-            m_pLogger->err("proxySafeRecv err: %d", errno);
-            return;
-        }
-    }
-    else if (ret == 0)
-    {
-        deleteUser(m_mapProxy[fd].userFd);
-        deleteProxyConn(fd);
-    }
-    else if (ret > 0)
-    {
-        m_mapProxy[fd].recvNum += ret;
-
-        if (m_mapProxy[fd].recvNum == targetSize)
-        {
-            m_mapProxy[fd].recvNum = 0;
-
-            // targetSize = header size or data size
-            if (targetSize == sizeof(DataHeader))
-            {
-                memcpy(&m_mapProxy[fd].header, m_mapProxy[fd].recvBuf, targetSize);
-            }
-            else
-            {
-                uint32_t realDataSize = m_pCryptor->decrypt(
-                    m_mapProxy[fd].header.iv, 
-                    (uint8_t*)m_mapProxy[fd].recvBuf, 
-                    targetSize
-                );
-
-                // if recv all done, we callback
-                callback(fd, realDataSize);
-
-                // remember init datalen for next recv
-                m_mapProxy[fd].header.dataLen = 0;
-            }
-        }
-    }
-}
-
-void Server::proxyReadUserInfoProc(int fd, int mask)
-{
-    if (!(mask & EVENT_READABLE))
-    {
-        return;
-    }
-
-    proxySafeRecv(
-        fd,
-        std::bind(
-            &Server::onProxyReadUserInfoDone,
-            this,
-            std::placeholders::_1, 
-            std::placeholders::_2
-        )
-    );
-}
-
-void Server::onProxyReadUserInfoDone(int fd, size_t dataSize)
-{
-    int userFd;
-
-    if (dataSize != sizeof(userFd))
-    {
-        printf(
-            "encrpt onProxyReadUserInfoDone data len not good! expect: %lu, infact: %lu\n", 
-            sizeof(m_serverPassword), dataSize
-        );
-        return;
-    }
-
-    memcpy(&userFd, m_mapProxy[fd].recvBuf, dataSize);
-
-    if (m_mapUsers.find(userFd) != m_mapUsers.end())
-    {
-        m_mapProxy[fd].userFd = userFd;
-        m_mapUsers[userFd].proxyFd = fd;
-
-        m_reactor.registFileEvent(fd, EVENT_READABLE,
-                                    std::bind(&Server::proxyReadDataProc,
-                                            this, std::placeholders::_1, std::placeholders::_2));
-        m_reactor.registFileEvent(userFd, EVENT_READABLE,
-                                    std::bind(&Server::userReadDataProc,
-                                            this, std::placeholders::_1, std::placeholders::_2));
-        
-        printf("start new proxy..., %d<--->%d\n", userFd, fd);
-        m_pLogger->info("start new proxy..., %d<--->%d", userFd, fd);
-    }
-    else
-    {
-        // delete proxy
-        deleteProxyConn(fd);
-    }
-}
-
-void Server::deleteProxyConn(int fd)
-{
-    m_mapProxy.erase(fd);
-    close(fd);
-    m_reactor.removeFileEvent(fd, EVENT_READABLE | EVENT_WRITABLE);
-    printf("deleted proxy conn: %d\n", fd);
-    m_pLogger->info("deleted proxy conn: %d", fd);
-}
-
-
-void Server::proxyReadDataProc(int fd, int mask)
-{
-    if (!(mask & EVENT_READABLE))
-    {
-        return;
-    }
-
-    proxySafeRecv(
-        fd,
-        std::bind(
-            &Server::onProxyReadDataDone,
-            this,
-            std::placeholders::_1, 
-            std::placeholders::_2
-        )
-    );
-}
-
-void Server::onProxyReadDataDone(int fd, size_t dataSize)
-{
-    int userFd = m_mapProxy[fd].userFd;
-
-    if (m_mapUsers[userFd].sendSize + dataSize >= sizeof(m_mapUsers[userFd].sendBuf))
-    {
-        printf("user send buf full\n");
-        m_pLogger->warn("user send buf full");
-        return;
-    }
-
-    memcpy(
-        m_mapUsers[userFd].sendBuf + m_mapUsers[userFd].sendSize, 
-        m_mapProxy[fd].recvBuf, 
-        dataSize
-    );
-    m_mapUsers[userFd].sendSize += dataSize;
-
-    // duplicated regist is fine
-    m_reactor.registFileEvent(
-        userFd,
-        EVENT_WRITABLE,
-        std::bind(
-            &Server::userWriteDataProc,
-            this, 
-            std::placeholders::_1, 
-            std::placeholders::_2
-        )
-    );
-}
 
 /*
  * 发送缓冲区的数据给user
@@ -873,15 +682,15 @@ void Server::onProxyReadDataDone(int fd, size_t dataSize)
 void Server::userWriteDataProc(int fd, int mask)
 {
     printf("on userWriteDataProc\n");
-    int numSend = send(fd, m_mapUsers[fd].sendBuf, m_mapUsers[fd].sendSize, MSG_DONTWAIT);
+    auto numSend = send(fd, m_mapUsers[fd].sendBuf, m_mapUsers[fd].sendSize, MSG_DONTWAIT);
     if (numSend > 0)
     {
-        if (numSend == m_mapUsers[fd].sendSize)
+        if (static_cast<size_t>(numSend) == m_mapUsers[fd].sendSize)
         {
             m_reactor.removeFileEvent(fd, EVENT_WRITABLE);
             // 缓冲区已经全部发送了，从开始放数据
             m_mapUsers[fd].sendSize = 0;
-            printf("userWriteDataProc: send all data: %d\n", numSend);
+            printf("userWriteDataProc: send all data: %ld\n", numSend);
         }
         else
         {
@@ -889,7 +698,7 @@ void Server::userWriteDataProc(int fd, int mask)
             size_t newSize = m_mapUsers[fd].sendSize - numSend; // 还剩多少没发送完
             m_mapUsers[fd].sendSize = newSize;
             memmove(m_mapUsers[fd].sendBuf, m_mapUsers[fd].sendBuf + numSend, newSize);
-            printf("userWriteDataProc: send partial data: %d, left:%lu\n", numSend, newSize);
+            printf("userWriteDataProc: send partial data: %ld, left:%lu\n", numSend, newSize);
         }
     }
     else
@@ -904,20 +713,22 @@ void Server::userWriteDataProc(int fd, int mask)
 
 /*
  * recv user data, and send to proxy tunnel with encrypted
+ * send user data to client ======================== start
 */
-void Server::userReadDataProc(int fd, int mask)
+void Server::userReadDataProc(int ufd, int mask)
 {
     printf("on userReadDataProc\n");
-    int proxyFd = m_mapUsers[fd].proxyFd;
 
-    if (m_mapProxy[proxyFd].sendSize >= MAX_BUF_SIZE)
+    auto cfd = m_mapUsers[ufd].cfd;
+    auto recvOffset = m_mapClients[cfd].sendSize + sizeof(MsgData);
+    if (recvOffset >= MAX_BUF_SIZE)
     {
         printf("proxy send buf full\n");
         return;
     }
 
-    int numRecv = recv(fd, m_mapProxy[proxyFd].sendBuf + m_mapProxy[proxyFd].sendSize,
-                       MAX_BUF_SIZE - m_mapProxy[proxyFd].sendSize, MSG_DONTWAIT);
+    int numRecv = recv(ufd, m_mapClients[cfd].sendBuf + recvOffset,
+                       MAX_BUF_SIZE - recvOffset, MSG_DONTWAIT);
     if (numRecv == -1)
     {
         if (errno != EAGAIN && EAGAIN != EWOULDBLOCK)
@@ -926,67 +737,78 @@ void Server::userReadDataProc(int fd, int mask)
             m_pLogger->err("userReadDataProc recv err: %d\n", errno);
             return;
         }
+        printf("unknown error===== %d fd: %d\n", errno, ufd);
+        if (errno == ENOTSOCK)
+        {
+            printf("error\n");
+            exit(-1);
+        }
     }
     else if (numRecv == 0)
     {
-        deleteUser(fd);
-        deleteProxyConn(proxyFd);
+        deleteUser(ufd);
     }
     else if (numRecv > 0)
     {
-        m_mapProxy[proxyFd].sendSize += MsgUtil::packCryptedData(
+        MsgData msgData;
+        msgData.type = MSGTYPE_CLIENT_APP_DATA;
+        msgData.size = numRecv;
+        msgData.userid = ufd;
+        memcpy(m_mapClients[cfd].sendBuf + m_mapClients[cfd].sendSize, &msgData, sizeof(msgData));
+
+        printf("^^^^^^^^ %d\n", m_mapClients[cfd].sendSize);
+        printf("%d %d %d\n", msgData.type, msgData.size, msgData.userid);
+
+        m_mapClients[cfd].sendSize += MsgUtil::packCryptedData(
             m_pCryptor,
-            (uint8_t*)m_mapProxy[proxyFd].sendBuf + m_mapProxy[proxyFd].sendSize,
-            (uint8_t*)m_mapProxy[proxyFd].sendBuf + m_mapProxy[proxyFd].sendSize,
-            numRecv
+            (uint8_t*)m_mapClients[cfd].sendBuf + m_mapClients[cfd].sendSize,
+            (uint8_t*)m_mapClients[cfd].sendBuf + m_mapClients[cfd].sendSize,
+            numRecv + sizeof(msgData)
         );
 
+        printf("!^^^^^^^^ %d    cfd: %d\n", m_mapClients[cfd].sendSize, cfd);
+        // TODO 客户端断开连接时的消息
+
         m_reactor.registFileEvent(
-            proxyFd, 
+            cfd, 
             EVENT_WRITABLE,
             std::bind(
-                &Server::proxyWriteDataProc,
+                &Server::sendUserDataProc,
                 this, 
                 std::placeholders::_1, 
                 std::placeholders::_2
             )
         );
-        printf("userReadDataProc: recv from user: %d, proxy snedSize: %lu\n", numRecv, m_mapProxy[proxyFd].sendSize);
+        printf("userReadDataProc: recv from user: %d, client snedSize: %lu\n", numRecv, m_mapClients[cfd].sendSize);
     }
 }
 
-/*
- * 发送缓冲区的数据给代理通道
-*/
-void Server::proxyWriteDataProc(int fd, int mask)
+void Server::sendUserDataProc(int fd, int mask)
 {
-    printf("on proxyWriteDataProc\n");
-    int numSend = send(fd, m_mapProxy[fd].sendBuf, m_mapProxy[fd].sendSize, MSG_DONTWAIT);
-    if (numSend > 0)
+    // printf("&&&&&&&&&&&&&&fd: %d, mask: %d\n", fd, mask);
+    if (!(mask & EVENT_WRITABLE))
     {
-        if (numSend == m_mapProxy[fd].sendSize)
-        {
-            m_reactor.removeFileEvent(fd, EVENT_WRITABLE);
-            m_mapProxy[fd].sendSize = 0;
-            printf("proxyWriteDataProc: send all data: %d\n", numSend);
-        }
-        else
-        {
-            size_t newSize = m_mapProxy[fd].sendSize - numSend;
-            m_mapProxy[fd].sendSize = newSize;
-            memmove(m_mapProxy[fd].sendBuf, m_mapProxy[fd].sendBuf + numSend, newSize);
-            printf("proxyWriteDataProc: send partial data: %d, left:%lu\n", numSend, newSize);
-        }
+        return;
     }
-    else
-    {
-        if (errno != EAGAIN && EAGAIN != EWOULDBLOCK)
-        {
-            printf("proxyWriteDataProc send err:%d\n", errno);
-            m_pLogger->err("proxyWriteDataProc send err:%d", errno);
-        }
-    }
+    // printf("*********&&&&&&&\n");
+
+    clitneSafeSend(
+        fd,
+        std::bind(
+            &Server::onSendUserDataDone,
+            this,
+            std::placeholders::_1
+        )
+    );
 }
+
+void Server::onSendUserDataDone(int fd)
+{
+    m_reactor.removeFileEvent(fd, EVENT_WRITABLE);
+    printf("onSendUserDataDone\n");
+}
+// send user data to client ======================== end
+
 
 void Server::deleteUser(int fd)
 {
@@ -997,26 +819,6 @@ void Server::deleteUser(int fd)
     m_pLogger->info("deleted user:%d", fd);
 }
 
-void Server::initCryptor()
-{
-    m_pCryptor = new Cryptor(CRYPT_CBC, (uint8_t*)m_serverPassword);
-    if(m_pCryptor == nullptr)
-    {
-        m_pLogger->err("new Cryptor object error");
-        exit(-1);
-    }
-}
-
-void Server::setPassword(const char *password)
-{
-    if (password != NULL)
-    {
-        strncpy(m_serverPassword, MD5(password).toStr().c_str(), sizeof(m_serverPassword)); // md5加密
-    }
-
-    initCryptor();
-}
-
 void Server::deleteClient(int fd)
 {
     printf("client gone!\n");
@@ -1024,27 +826,7 @@ void Server::deleteClient(int fd)
     m_reactor.removeFileEvent(fd, EVENT_READABLE | EVENT_WRITABLE);
     m_mapClients.erase(fd);
     close(fd);
-    // 需要加快效率，不应每次遍历,注意删除顺序,proxy -> user -> remotelisten
-    // 删除相关的proxy连接
-    for (auto it = m_mapProxy.begin(); it != m_mapProxy.end();)
-    {
-        int ufd, cfd;
-        ufd = it->second.userFd;
-        cfd = findClientfdByPort(m_mapUsers[ufd].port);
-        if (cfd == fd)
-        {
-            int pfd = it->first;
-            m_reactor.removeFileEvent(pfd, EVENT_READABLE | EVENT_WRITABLE);
-            close(pfd);
-            it = m_mapProxy.erase(it);
-            printf("delete proxy conn with this client! %d\n", pfd);
-            m_pLogger->info("delete proxy conn with this client! %d", pfd);
-        }
-        else
-        {
-            it++;
-        }
-    }
+    // 需要加快效率，不应每次遍历,注意删除顺序,user -> remotelisten
     // 删除相关的user
     for (auto it = m_mapUsers.begin(); it != m_mapUsers.end();)
     {
@@ -1092,6 +874,26 @@ int Server::findClientfdByPort(unsigned short port)
         }
     }
     return -1;
+}
+
+void Server::initCryptor()
+{
+    m_pCryptor = new Cryptor(CRYPT_CBC, (uint8_t*)m_serverPassword);
+    if(m_pCryptor == nullptr)
+    {
+        m_pLogger->err("new Cryptor object error");
+        exit(-1);
+    }
+}
+
+void Server::setPassword(const char *password)
+{
+    if (password != NULL)
+    {
+        strncpy(m_serverPassword, MD5(password).toStr().c_str(), sizeof(m_serverPassword)); // md5加密
+    }
+
+    initCryptor();
 }
 
 void Server::setLogger(Logger *logger)

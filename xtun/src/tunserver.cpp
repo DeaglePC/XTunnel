@@ -15,7 +15,6 @@ bool g_isBackground = false; // 是否后台运行
 struct ConfigServer
 {
     unsigned short serverPort;
-    unsigned short proxyPort;
     std::string password;
     std::string logPath;
 } g_cfg;
@@ -30,18 +29,12 @@ void readConfig(const char *cfgFile)
         exit(-1);
     }
     string common = "common";
-    int serverPort, porxyPort;
+    int serverPort;
     string password, logPath;
     ret = iniFile.GetIntValue(common, "server_port", &serverPort);
     if (ret != 0)
     {
         printf("config file cann't find server_port\n");
-        exit(-1);
-    }
-    ret = iniFile.GetIntValue(common, "proxy_port", &porxyPort);
-    if (ret != 0)
-    {
-        printf("config file cann't find proxy_port\n");
         exit(-1);
     }
     ret = iniFile.GetStringValue(common, "password", &password);
@@ -59,7 +52,6 @@ void readConfig(const char *cfgFile)
 
     g_cfg.password = password;
     g_cfg.serverPort = serverPort;
-    g_cfg.proxyPort = porxyPort;
     g_cfg.logPath = logPath;
     //printf("pw:%s\nsp: %d\npp: %d\n", g_cfg.password.c_str(), g_cfg.serverPort, g_cfg.proxyPort);
 }
@@ -133,7 +125,7 @@ int main(int argc, char *argv[])
     g_logger.warn("-------------------------");
     g_logger.err("-------------------------");
 
-    g_pServer = new Server(g_cfg.serverPort, g_cfg.proxyPort);
+    g_pServer = new Server(g_cfg.serverPort);
     if (g_pServer == nullptr)
     {
         printf("create server err\n");
