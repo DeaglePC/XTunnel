@@ -45,17 +45,24 @@ enum AUTH_STATUS
 
 struct NetData
 {
-  size_t recvNum;
-  size_t recvSize;
+  size_t recvNum{0};
 
   DataHeader header;
 
   char recvBuf[REAL_MAX_BUF_SIZE];
 
-  size_t sendNum;
   size_t sendSize;
   char sendBuf[REAL_MAX_BUF_SIZE];
-  NetData() : recvNum(0), recvSize(0) {}
+
+  bool isSendBufFull()
+  {
+    return sendSize >= MAX_BUF_SIZE;
+  }
+
+  char* currSendBufAddr()
+  {
+    return sendBuf + sendSize;
+  }
 };
 
 
@@ -63,13 +70,21 @@ struct LocalConnInfo
 {
   int userId;
 
-  size_t sendSize;
+  size_t sendSize{0};
   char sendBuf[REAL_MAX_BUF_SIZE];
 
   size_t recvSize;
   char recvBuf[REAL_MAX_BUF_SIZE];
 
-  LocalConnInfo() : sendSize(0) {}
+  bool isSendBufFull()
+  {
+    return sendSize >= MAX_BUF_SIZE;
+  }
+
+  char* currSendBufAddr()
+  {
+    return sendBuf + sendSize;
+  }
 };
 using LocalConnInfoMap = std::unordered_map<int, LocalConnInfo>;
 
@@ -119,17 +134,16 @@ private:
   void onReplyNewProxyDone(int fd);
 
   int sendHeartbeatTimerProc(long long id);
+  void writeHeartbeatDataProc(int fd, int mask);
+  void onWriteHeartbeatDataDone(int fd);
+
   void processHeartbeat();  // 收到服务端的心跳做的处理
   int checkHeartbeatTimerProc(long long id);
 
-  // void proxySafeRecv(int fd, std::function<void(int fd, size_t dataSize)> callback);
   void localReadDataProc(int fd, int mask);
   void sendLocalDataProc(int fd, int mask);
   void onSendLocalDataDone(int fd);
-  // void onProxyReadDataDone(int fd, size_t dataSize);
   void localWriteDataProc(int fd, int mask);
-  // void proxyReadDataProc(int fd, int mask);
-  // void proxyWriteDataProc(int fd, int mask);
   void tellServerLocalDown(int fd);
   void tellServerLocalDownProc(int fd, int mask);
   void ontellServerLocalDownDone(int fd);

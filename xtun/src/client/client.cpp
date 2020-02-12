@@ -63,7 +63,7 @@ int Client::sendAuthPassword()
         if (ret > 0)
         {
             sendCnt += ret;
-            if (sendCnt == dataLen)
+            if (static_cast<uint32_t>(sendCnt) == dataLen)
             {
                 break;
             }
@@ -88,14 +88,14 @@ int Client::checkAuthResult()
     int ret;
     DataHeader header;
     uint8_t recvBuf[sizeof(DataHeader) + AES_BLOCKLEN];
-    size_t targetSize, recvNum = 0;
+    size_t targetSize;
 
     while (1)
     {
         targetSize = header.ensureTargetDataSize();
         ret = recv(m_clientSocketFd, recvBuf, targetSize, 0);  // block
         
-        if (ret == targetSize)
+        if (ret == static_cast<int>(targetSize))
         {
             if (targetSize == sizeof(DataHeader))
             {
@@ -104,7 +104,7 @@ int Client::checkAuthResult()
             else
             {
                 // shoud be sizeof(AUTH_TOKEN), if password is wrong, this value is a random number
-                uint32_t realDataSize = m_pCryptor->decrypt(
+                m_pCryptor->decrypt(
                     header.iv,
                     recvBuf,
                     targetSize
@@ -169,7 +169,7 @@ int Client::sendPorts()
 
     unsigned short ports[portNum + 1]; // [0]: 存放端口的数量，之后存放端口
     ports[0] = (unsigned short)portNum;
-    for (int i = 0; i < portNum; i++)
+    for (size_t i = 0; i < portNum; i++)
     {
         ports[i + 1] = m_configProxy[i].remotePort;
     }
@@ -185,7 +185,7 @@ int Client::sendPorts()
         m_pLogger->err("sendPorts err: %d\n", errno);
         return -1;
     }
-    else if (ret == cryptedDataLen)
+    else if (ret == static_cast<int>(cryptedDataLen))
     {
         printf("sendPorts num: %ld\n", portNum);
         m_pLogger->info("sendPorts num: %ld", portNum);
@@ -336,7 +336,7 @@ void Client::onClientReadDone(size_t dataSize)
         int ufd = msgData.userid;
         int localFd = m_mapUsers[ufd].localFd;
         memcpy(
-            m_mapLocalConn[localFd].sendBuf + m_mapLocalConn[localFd].sendSize,
+            m_mapLocalConn[localFd].currSendBufAddr(),
             m_clientData.recvBuf + sizeof(MsgData),
             msgData.size
         );
@@ -439,12 +439,12 @@ void Client::localReadDataProc(int fd, int mask)
         msgData.type = MSGTYPE_CLIENT_APP_DATA;
         msgData.size = numRecv;
         msgData.userid = m_mapLocalConn[fd].userId;
-        memcpy(m_clientData.sendBuf + m_clientData.sendSize, &msgData, sizeof(msgData));
+        memcpy(m_clientData.currSendBufAddr(), &msgData, sizeof(msgData));
 
         m_clientData.sendSize += MsgUtil::packCryptedData(
             m_pCryptor,
-            (uint8_t*)m_clientData.sendBuf + m_clientData.sendSize,
-            (uint8_t*)m_clientData.sendBuf + m_clientData.sendSize,
+            (uint8_t*)m_clientData.currSendBufAddr(),
+            (uint8_t*)m_clientData.currSendBufAddr(),
             numRecv + sizeof(msgData)
         );
 
@@ -459,7 +459,7 @@ void Client::localReadDataProc(int fd, int mask)
             )
         );
         
-        printf("localReadDataProc: recv from local: %d, client snedSize: %d\n", numRecv, m_clientData.sendSize);
+        printf("localReadDataProc: recv from local: %d, client snedSize: %ld\n", numRecv, m_clientData.sendSize);
     }
 }
 
@@ -493,7 +493,7 @@ void Client::localWriteDataProc(int fd, int mask)
     int numSend = send(fd, m_mapLocalConn[fd].sendBuf, m_mapLocalConn[fd].sendSize, MSG_DONTWAIT);
     if (numSend > 0)
     {
-        if (numSend == m_mapLocalConn[fd].sendSize)
+        if (numSend == static_cast<int>(m_mapLocalConn[fd].sendSize))
         {
             m_reactor.removeFileEvent(fd, EVENT_WRITABLE);
             m_mapLocalConn[fd].sendSize = 0;
@@ -598,7 +598,7 @@ void Client::replyNewProxy(int userId, bool isSuccess)
 
     m_clientData.sendSize += MsgUtil::packCryptedData(
         m_pCryptor, 
-        (uint8_t*)m_clientData.sendBuf + m_clientData.sendSize, 
+        (uint8_t*)m_clientData.currSendBufAddr(), 
         (uint8_t*)buf,
         bufSize
     );
@@ -679,37 +679,54 @@ int Client::sendHeartbeatTimerProc(long long id)
     memcpy(bufData, &heartData, sizeof(heartData));
     memcpy(bufData + sizeof(heartData), HEARTBEAT_CLIENT_MSG, strlen(HEARTBEAT_CLIENT_MSG));
 
-    uint8_t buf[MsgUtil::ensureCryptedDataSize(dataSize)];
-    uint32_t cryptedDataLen = MsgUtil::packCryptedData(m_pCryptor, buf, (uint8_t*)bufData, dataSize);
+    m_clientData.sendSize += MsgUtil::packCryptedData(
+        m_pCryptor, 
+        (uint8_t*)m_clientData.currSendBufAddr(), 
+        (uint8_t*)bufData,
+        dataSize
+    );
 
-    int ret = send(m_clientSocketFd, buf, cryptedDataLen, MSG_DONTWAIT);
-    if (ret == -1)
-    {
-        if (errno != EAGAIN && errno != EWOULDBLOCK)
-        {
-            printf("send heartbeat err: %d\n", errno);
-            m_pLogger->err("send heartbeat err: %d", errno);
-        }
-    }
-    else
-    {
-        if (ret == cryptedDataLen)
-        {
-            // printf("send heartbeat success!\n");
-        }
-        else
-        {
-            printf("send heartbeat: send buf not good!\n");
-            m_pLogger->err("send heartbeat: send buf not good!");
-        }
-    }
+    m_reactor.registFileEvent(
+        m_clientSocketFd,
+        EVENT_WRITABLE,
+        std::bind(
+            &Client::writeHeartbeatDataProc,
+            this,
+            std::placeholders::_1,
+            std::placeholders::_2
+        )
+    );
+    
     return HEARTBEAT_INTERVAL_MS;
+}
+
+void Client::writeHeartbeatDataProc(int fd, int mask)
+{
+    if (!(mask & EVENT_WRITABLE))
+    {
+        return;
+    }
+
+    serverSafeSend(
+        fd, 
+        std::bind(
+            &Client::onWriteHeartbeatDataDone,
+            this,
+            std::placeholders::_1
+        )
+    );
+}
+
+void Client::onWriteHeartbeatDataDone(int fd)
+{
+    m_reactor.removeFileEvent(fd, EVENT_WRITABLE);
+    // printf("onWriteHeartbeatDataDone\n");
 }
 
 
 void Client::setProxyConfig(const std::vector<ProxyInfo> &pcs)
 {
-    for (int i = 0; i < pcs.size(); i++)
+    for (size_t i = 0; i < pcs.size(); i++)
     {
         m_configProxy.push_back(pcs[i]);
     }

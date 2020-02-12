@@ -42,7 +42,6 @@ struct ClientInfo
   DataHeader header;
 
   size_t recvNum{0};
-  size_t recvSize;
   char recvBuf[MAX_BUF_SIZE + AES_BLOCKLEN];  // AES_BLOCKLEN is for aes padding size
   
   size_t sendSize{0};
@@ -54,7 +53,20 @@ struct ClientInfo
 
   std::vector<unsigned short> remotePorts;
 
-  // ClientInfo() : recvNum(0), sendSize(0), lastHeartbeat(-1), status(CLIENT_STATUS_CONNECTED) {}
+  bool isSendBufFull()
+  {
+    return sendSize >= MAX_BUF_SIZE;
+  }
+
+  bool isRecvBufFull()
+  {
+    return recvNum >= MAX_BUF_SIZE;
+  }
+
+  char* currSendBufAddr()
+  {
+    return sendBuf + sendSize;
+  }
 };
 using ClientInfoMap = std::unordered_map<int, ClientInfo>;
 
@@ -72,13 +84,20 @@ using ListenInfoMap = std::unordered_map<int, ListenInfo>;
 struct UserInfo
 {
   unsigned short port;
-  // int proxyFd;
   int cfd;
 
-  size_t sendSize; // 发送缓冲区现有数据
+  size_t sendSize{0}; // 发送缓冲区现有数据
   char sendBuf[MAX_BUF_SIZE + AES_BLOCKLEN + sizeof(DataHeader)];
 
-  UserInfo() : sendSize(0) {}
+  bool isSendBufFull()
+  {
+    return sendSize >= MAX_BUF_SIZE;
+  }
+
+  char* currSendBufAddr()
+  {
+    return sendBuf + sendSize;
+  }
 };
 using UserInfoMap = std::unordered_map<int, UserInfo>;
 
@@ -92,7 +111,6 @@ private:
   int m_proxySocketFd;
 
   unsigned short m_serverPort;
-  // unsigned short m_proxyPort;
 
   char m_serverPassword[PW_MAX_LEN];
 
@@ -104,7 +122,6 @@ private:
   ClientInfoMap m_mapClients;
   ListenInfoMap m_mapListen;
   UserInfoMap m_mapUsers;
-  // ProxyConnInfoMap m_mapProxy;
 
   // server init methods
   int listenControl(); // 监听服务器控制端口，负责新客户端接入
@@ -136,6 +153,9 @@ private:
   
   // heartbeat
   void sendHeartbeat(int cfd);         // 回复心跳
+  void writeHeartbeatDataProc(int cfd, int mask);
+  void onWriteHeartbeatDataDone(int cfd);
+
   void updateClientHeartbeat(int cfd); // 更新客户端心跳时间
   int checkHeartbeatTimerProc(long long id); // 检查客户端心跳,定时器
 
@@ -144,16 +164,6 @@ private:
   bool isExistsPort(unsigned short port);       // 检查对外端口是不是已经被其他客户端使用了，如果使用了，则丢弃该客户端
 
   int listenRemotePort(int cfd);                // 监听cfd客户端的远程端口
-  // void proxyAcceptProc(int fd, int mask);       // 代理端口收到新连接的处理
-  // void proxySafeRecv(int fd, std::function<void(int fd, size_t dataSize)> callback);
-  
-  // void proxyReadUserInfoProc(int fd, int mask); // 首次接收是和哪个user进行数据转发
-  // void onProxyReadUserInfoDone(int fd, size_t dataSize);
-
-  // void onProxyReadDataDone(int fd, size_t dataSize);
-
-  // void proxyReadDataProc(int fd, int mask);  // 接收客户端代理通道发来的数据 del
-  // void proxyWriteDataProc(int fd, int mask); // 给客户端的代理通道发送数据 del
 
   void userReadDataProc(int fd, int mask);   // 接收用户发来的数据
   void userWriteDataProc(int fd, int mask);  // 给用户发送的数据
@@ -163,7 +173,6 @@ private:
   void initClient(int fd);
   void deleteClient(int fd);
   void deleteUser(int fd);
-  // void deleteProxyConn(int fd);
 
   void initCryptor();
 

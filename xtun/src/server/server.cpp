@@ -131,6 +131,10 @@ void Server::clientSafeRecv(int cfd, std::function<void(int cfd, size_t dataSize
     int ret;
     // there is not header init if data len is 0
     size_t targetSize = m_mapClients[cfd].header.ensureTargetDataSize();
+    if (m_mapClients[cfd].isRecvBufFull())
+    {
+        return;
+    }
 
     ret = recv(cfd, m_mapClients[cfd].recvBuf + m_mapClients[cfd].recvNum,
                 targetSize - m_mapClients[cfd].recvNum, MSG_DONTWAIT);
@@ -268,7 +272,7 @@ void Server::processClientAuthResult(int cfd, bool isGood)
 
     m_mapClients[cfd].sendSize += MsgUtil::packCryptedData(
         m_pCryptor, 
-        (uint8_t*)m_mapClients[cfd].sendBuf + m_mapClients[cfd].sendSize, 
+        (uint8_t*)m_mapClients[cfd].currSendBufAddr(), 
         (uint8_t*)AUTH_TOKEN,
         sizeof(AUTH_TOKEN)
     );
@@ -480,9 +484,9 @@ void Server::sendClientNewProxy(int cfd, int ufd, unsigned short remotePort)
     memcpy(buf + sizeof(msgData), &newProxyMsg, sizeof(newProxyMsg));
 
     printf("##### ufd: %d\n", ufd);
-    m_mapClients[cfd].sendSize = MsgUtil::packCryptedData(
+    m_mapClients[cfd].sendSize += MsgUtil::packCryptedData(
         m_pCryptor, 
-        (uint8_t*)m_mapClients[cfd].sendBuf, 
+        (uint8_t*)m_mapClients[cfd].currSendBufAddr(), 
         (uint8_t*)buf,
         bufSize
     );
@@ -563,10 +567,16 @@ void Server::processClientBuf(int cfd, size_t dataSize)
     else if (msgData.type == MSGTYPE_CLIENT_APP_DATA)
     {
         int ufd = msgData.userid;
-        printf("$$$$$$$ ufd: %d\n", ufd);
+        // printf("$$$$$$$ ufd: %d\n", ufd);
+        if (m_mapUsers[ufd].isSendBufFull())
+        {
+            // TODO tell client user down
+            deleteUser(ufd);
+            return;
+        }
 
         memcpy(
-            m_mapUsers[ufd].sendBuf + m_mapUsers[ufd].sendSize,
+            m_mapUsers[ufd].currSendBufAddr(),
             m_mapClients[cfd].recvBuf + sizeof(MsgData),
             msgData.size
         );
@@ -592,6 +602,12 @@ void Server::processClientBuf(int cfd, size_t dataSize)
 
 void Server::sendHeartbeat(int cfd)
 {
+    if (m_mapClients[cfd].isSendBufFull())
+    {
+        m_pLogger->err("client: %d send buf is full, can't send heartbeat", cfd);
+        return;
+    }
+
     MsgData heartData;
     heartData.type = MSGTYPE_HEARTBEAT;
     heartData.size = strlen(HEARTBEAT_SERVER_MSG);
@@ -602,30 +618,46 @@ void Server::sendHeartbeat(int cfd)
     memcpy(bufData, &heartData, sizeof(heartData));
     memcpy(bufData + sizeof(heartData), HEARTBEAT_SERVER_MSG, strlen(HEARTBEAT_SERVER_MSG));
 
-    uint8_t buf[MsgUtil::ensureCryptedDataSize(dataSize)];
-    uint32_t cryptedDataLen = MsgUtil::packCryptedData(m_pCryptor, buf, (uint8_t*)bufData, dataSize);
+    m_mapClients[cfd].sendSize += MsgUtil::packCryptedData(
+        m_pCryptor, 
+        (uint8_t*)m_mapClients[cfd].currSendBufAddr(), 
+        (uint8_t*)bufData, 
+        dataSize
+    );
 
-    auto ret = send(cfd, buf, cryptedDataLen, MSG_DONTWAIT);
-    if (ret == -1)
+    m_reactor.registFileEvent(
+        cfd,
+        EVENT_WRITABLE,
+        std::bind(
+            &Server::writeHeartbeatDataProc,
+            this,
+            std::placeholders::_1,
+            std::placeholders::_2
+        )
+    );
+}
+
+void Server::writeHeartbeatDataProc(int cfd, int mask)
+{
+    if (!(mask & EVENT_WRITABLE))
     {
-        if (errno != EAGAIN && errno != EWOULDBLOCK)
-        {
-            printf("send heartbeat err: %d\n", errno);
-            m_pLogger->err("send heartbeat err: %d", errno);
-        }
+        return;
     }
-    else
-    {
-        if (ret == cryptedDataLen)
-        {
-            // printf("send to client: %d heartbeat success!\n", cfd);
-        }
-        else
-        {
-            printf("send to client: %d heartbeat not good!\n", cfd);
-            m_pLogger->warn("send to client: %d heartbeat not good!", cfd);
-        }
-    }
+
+    clitneSafeSend(
+        cfd, 
+        std::bind(
+            &Server::onWriteHeartbeatDataDone,
+            this,
+            std::placeholders::_1
+        )
+    );
+}
+
+void Server::onWriteHeartbeatDataDone(int cfd)
+{
+    m_reactor.removeFileEvent(cfd, EVENT_WRITABLE);
+    // printf("onWriteHeartbeatDataDone\n");
 }
 
 void Server::updateClientHeartbeat(int cfd)
@@ -758,19 +790,19 @@ void Server::userReadDataProc(int ufd, int mask)
         msgData.type = MSGTYPE_CLIENT_APP_DATA;
         msgData.size = numRecv;
         msgData.userid = ufd;
-        memcpy(m_mapClients[cfd].sendBuf + m_mapClients[cfd].sendSize, &msgData, sizeof(msgData));
+        memcpy(m_mapClients[cfd].currSendBufAddr(), &msgData, sizeof(msgData));
 
-        printf("^^^^^^^^ %d\n", m_mapClients[cfd].sendSize);
-        printf("%d %d %d\n", msgData.type, msgData.size, msgData.userid);
+        // printf("^^^^^^^^ %d\n", m_mapClients[cfd].sendSize);
+        // printf("%d %d %d\n", msgData.type, msgData.size, msgData.userid);
 
         m_mapClients[cfd].sendSize += MsgUtil::packCryptedData(
             m_pCryptor,
-            (uint8_t*)m_mapClients[cfd].sendBuf + m_mapClients[cfd].sendSize,
-            (uint8_t*)m_mapClients[cfd].sendBuf + m_mapClients[cfd].sendSize,
+            (uint8_t*)m_mapClients[cfd].currSendBufAddr(),
+            (uint8_t*)m_mapClients[cfd].currSendBufAddr(),
             numRecv + sizeof(msgData)
         );
 
-        printf("!^^^^^^^^ %d    cfd: %d\n", m_mapClients[cfd].sendSize, cfd);
+        // printf("!^^^^^^^^ %d    cfd: %d\n", m_mapClients[cfd].sendSize, cfd);
         // TODO 客户端断开连接时的消息
 
         m_reactor.registFileEvent(
