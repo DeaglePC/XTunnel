@@ -33,7 +33,10 @@
 
 # vscode
 .vscode
-xtun/bin/tunclient
-xtun/bin/tunclient_g
-xtun/bin/tunserver
-xtun/bin/tunserver_g
+.vs
+xtun/bin/
+
+CMakeFiles
+cmake_install.cmake
+MakeFile
+CMakeCache.txt

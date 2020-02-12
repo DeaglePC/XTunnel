@@ -104,7 +104,7 @@ int IniFile::UpdateSection(const string &cleanLine, const string &comment,
 
     *section = newSection;
 
-    printf("[%s]: section name = %s\n", __func__, s.c_str());
+    // printf("[%s]: section name = %s\n", __func__, s.c_str());
     return 0;
 }
 
@@ -123,8 +123,8 @@ int IniFile::AddKeyValuePair(const string &cleanLine, const string &comment,
     item.value = value;
     item.comment = comment;
     item.rightComment = rightComment;
-    cout << "item.comment=" << comment << endl;
-    cout << "item.rightComment=" << rightComment << endl;
+    // cout << "item.comment=" << comment << endl;
+    // cout << "item.rightComment=" << rightComment << endl;
 
     section->items.push_back(item);
 
@@ -175,9 +175,9 @@ int IniFile::Load(const string &filename)
         // 如果行首不是注释，查找行尾是否存在注释，若存在，切割该行，将注释内容添加到rightComment
         split(line, commentHead, &cleanLine, &rightComment);
 
-        cout << "cleanLine=" <<cleanLine << endl;
-        cout << "comment=\n" << comment << endl;
-        cout << "rightComment=" <<rightComment << endl;
+        //cout << "cleanLine=" <<cleanLine << endl;
+        //cout << "comment=\n" << comment << endl;
+        //cout << "rightComment=" <<rightComment << endl;
 
         // step 2，判断line内容是否为段或键
         //段开头查找 [

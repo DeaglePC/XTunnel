@@ -34,6 +34,7 @@ public:
 
   void eventLoop(int flag);
   void stopEventLoop();
+  void setStart();
 
   void registFileEvent(int fd, int mask, FileProc proc);
   void removeFileEvent(int fd, int mask);

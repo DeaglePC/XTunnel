@@ -77,7 +77,7 @@ int EpollDemultiplexer::pollEvent(const EventHandlerMap &fileEvents,
     {
         return 0;
     }
-    if(firedEvents.capacity() < ret)
+    if(firedEvents.capacity() < static_cast<size_t>(ret))
     {
         firedEvents.resize(ret);
     }
