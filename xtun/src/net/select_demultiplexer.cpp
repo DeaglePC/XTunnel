@@ -53,7 +53,7 @@ int SelectDemultiplexer::pollEvent(const std::map<int, FileEvent> &fileEvents, F
     int fd, mask;
     int index = 0;
     // 避免频繁分配内存
-    if(firedEvents.capacity() < num)
+    if(firedEvents.capacity() < static_cast<size_t>(num))
     {
         firedEvents.resize(num);
     }
