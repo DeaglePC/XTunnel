@@ -96,7 +96,7 @@ TODO：
 - [x] 5. Reconnect after disconnection
 - [ ] 6. Keep log files for n days only
 - [ ] 7. Add restart and stop parameters
-- [ ] 7. Optimize the code
+- [ ] 8. Optimize the code
 
 # Thanks：
 [Winnerhust](https://github.com/Winnerhust/inifile2)   for inifile2  
