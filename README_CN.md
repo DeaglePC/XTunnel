@@ -1,5 +1,7 @@
 <div align=center><img src="https://github.com/DeaglePC/XTunnel/blob/master/logos.png"/></div>
 
+[中文](https://github.com/DeaglePC/XTunnel/blob/master/README_CN.md) | [English](https://github.com/DeaglePC/XTunnel/blob/master/README.md)
+
 # XTunnel  
 ## 简介
 用于穿透内网的工具，将局域网的端口暴漏到公网来实现穿透到局域网，类似与frp、ngork之类的软件，但更轻巧，只用于TCP连接，正式版本，支持多用户多客户端。  
