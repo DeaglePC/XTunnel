@@ -26,7 +26,7 @@ git clone https://github.com/DeaglePC/XTunnel.git && cd XTunnel/xtun/ && cmake -
 # Configuration
 
 ## Server
-*样例： `ts.ini`*
+*Example： `ts.ini`*
 ```ini
 [common]
 server_port = 10087         # for client connection
@@ -34,8 +34,8 @@ password = 666              # keep it private
 log_path = /home/xxx/log    # log file path, make sure you have permission to write and read
 ```
 
-## 客户端
-*样例： `tc.ini`*
+## Client
+*Example： `tc.ini`*
 ```ini
 [common]
 server_ip = 12.13.14.15     # server public ip address
