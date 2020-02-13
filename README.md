@@ -3,15 +3,15 @@
 [中文](https://github.com/DeaglePC/XTunnel/blob/master/README_CN.md) | [English](https://github.com/DeaglePC/XTunnel/blob/master/README.md)
 
 # Introduction  
-A tool for penetrating the Intranet, allowing LAN ports to expose to the public network to penetrate the LAN, similar to FRP, ngork and other software, but more lightweight, only for TCP connections, support multi-user multi-client.  
+A tool for penetrating the Intranet, allowing LAN ports to expose to the public network to penetrate the LAN, similar to FRP, ngork and other software, but more lightweight, only for TCP connections, support multi-user and multi-client.  
 
 *The network IO model adopts the event driven model of reactor pattern, and the implementation method refers to redis source code*
 
-**Just supporting linux now，WSL is recommended under Windows**
+**Supporting Linux only for now. WSL is recommended under Windows**
 
 # Feature
 1. The size of executable file is very small.（100+kb）
-2. Easy to run, without any dependence on the environment, can run directly to the background of the daemon process.
+2. Easy to run, without any dependence , can run directly to the background of the daemon process.
 3. The configuration file is simple.
 4. Encryption transmission, the forwarded data will be encrypted and then transmitted, encryption algorithm defaults to aes-256-cbc.
 5. High performance IO, based on IO multiplexing, network event processing refers to redis Reactor event driven model.
