@@ -1,79 +1,102 @@
 <div align=center><img src="https://github.com/DeaglePC/XTunnel/blob/master/logos.png"/></div>
 
-# XTunnel  
-用于穿透内网的工具，基于端口映射原理，正式版本，支持多用户多客户端  
-io模型采用reactor模式的事件驱动模型，实现方法参考redis源码
+# Introduction  
+A tool for penetrating the Intranet, allowing LAN ports to expose to the public network to penetrate the LAN, similar to FRP, ngork and other software, but more lightweight, only for TCP connections, support multi-user multi-client.  
 
-**暂时只支持linux，windows下可以用WSL**
+*The network IO model adopts the event driven model of reactor pattern, and the implementation method refers to redis source code*
 
-## 安装
-* 编译安装  
+**Just supporting linux now，WSL is recommended under Windows**
+
+# Feature
+1. The size of executable file is very small.（100+kb）
+2. Easy to run, without any dependence on the environment, can run directly to the background of the daemon process.
+3. The configuration file is simple.
+4. Encryption transmission, the forwarded data will be encrypted and then transmitted, encryption algorithm defaults to aes-256-cbc.
+5. High performance IO, based on IO multiplexing, network event processing refers to redis Reactor event driven model.
+
+# Installation
+* Compile  
 ```bash
 git clone https://github.com/DeaglePC/XTunnel.git && cd XTunnel/xtun/ && cmake -DCMAKE_BUILD_TYPE=Release . && make
 ```
-* OR 下载安装  
-[点我下载](https://github.com/DeaglePC/XTunnel/releases/download/0.2/XTunnel_0.2_linux_x86_64.zip)
+* Download  
+[XTunnel_0.2_linux_x86_64.zip](https://github.com/DeaglePC/XTunnel/releases/download/0.2/XTunnel_0.2_linux_x86_64.zip)
 
 
-## 编辑配置文件
+# Configuration
 
-### 服务端
+## Server
 *样例： `ts.ini`*
 ```ini
 [common]
-server_port = 10087         # 服务端用于传输控制信息的端口
-password = 666              # 服务端认证密码
-log_path = /home/xxx/log    # 日志文件保存位置, 请确保有权限读写
+server_port = 10087         # for client connection
+password = 666              # keep it private
+log_path = /home/xxx/log    # log file path, make sure you have permission to write and read
 ```
 
-### 客户端
+## 客户端
 *样例： `tc.ini`*
 ```ini
 [common]
-server_ip = 12.13.14.15       # 服务器的公网ip
-server_port = 10087         # 和上面保持一致
-password = 666              # 和上面保持一致
-log_path = /home/xxx/log    # 日志文件保存位置, 请确保有权限读写
+server_ip = 12.13.14.15     # server public ip address
+server_port = 10087         # the server_port in ts.ini
+password = 666              # server password in ts.ini
+log_path = /home/xxx/log    # log file path, make sure you have permission to write and read
 
 [ssh]
 local_ip = 127.0.0.1
-local_port = 22             # 本地ssh监听的端口
-remote_port = 38439         # 远程服务器暴露的端口
+local_port = 22             # local application's port, here is ssh
+remote_port = 12300         # You want to expose the port on the public network
 
-[nc]
-local_ip = 127.0.0.1
-local_port = 6666
-remote_port = 38438
+[vnc]
+local_ip = 192.168.1.11
+local_port = 5900
+remote_port = 12301
+
+[rdp]
+local_ip = 192.168.1.12
+local_port = 3389
+remote_port = 12302
 ```
-如上配置文件表示：客户端将本地 `127.0.0.1:22` 以及 `127.0.0.1:6666` 分别映射到公网的 `12.13.14.15:38439` 和 `12.13.14.15:38438`, 直接连接公网的地址即可连接到本地局域网的应用上  
+The port mapping is as follows:
+|LAN network|Public network|
+|-|-|
+|127.0.0.1:22|12.13.14.15:12300|
+|192.168.1.11:5900|12.13.14.15:12301|
+|192.168.1.12:3389|12.13.14.15:12302|
+
+According to the above configuration file, by connecting to the IP: port of the public network, you can connect to the application in the LAN. For example, the above configuration files can be connected to SSH, VNC, and Windows RDP remote desktop respectively.
 
 
-## 运行服务端与客户端
-1. 运行服务端（在公网ip的机器上）  
+# Run(Server & Client)
+1. Run server（Runs on a host with a public network IP）  
 ```shell
 ./tunserver -c ts.ini -d
 ```
-*`-d` 参数表示以守护进程运行*
+*`-d` Parameter representation runs as a daemon*
 
-2. 运行客户端（在局域网机器中运行）
+2. Run client（Runs on a host in LAN）
 ```shell
 ./tunclient -c tc.ini -d
 ```
 
-3. 访问公网ip暴露的端口即可访问本地的应用，如ssh
+3. Connect to LAN applications by connecting to public network IP
 ```shell
 ssh test@12.13.14.15 -p 38439
 ```
 
+
 TODO：  
-- [x] 1.配置文件  
-- [x] 2.密码加密  
-- [x] 3.心跳机制  
-- [x] 4.加密数据  
-- [x] 5.断线重连
+- [x] 1. The configuration file  
+- [x] 2. Password encryption  
+- [x] 3. Heartbeats  
+- [x] 4. Encryption transmission  
+- [x] 5. Reconnect after disconnection
+- [ ] 6. Keep log files for n days only
+- [ ] 7. Add restart and stop parameters
+- [ ] 7. Optimize the code
 
-
-## 感谢以下开源作者：
-[ini](https://github.com/Winnerhust/inifile2)  
-[MD5](https://github.com/JieweiWei/md5)    
-[LOGGER](https://github.com/ttfutt/logger)
+# Thanks：
+[Winnerhust](https://github.com/Winnerhust/inifile2)   for inifile2  
+[JieweiWei](https://github.com/JieweiWei/md5) for MD5  
+[ttfutt](https://github.com/ttfutt/logger)  for logger
