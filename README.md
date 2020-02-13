@@ -70,7 +70,7 @@ The port mapping is as follows:
 According to the above configuration file, by connecting to the IP: port of the public network, you can connect to the application in the LAN. For example, the above configuration files can be connected to SSH, VNC, and Windows RDP remote desktop respectively.
 
 
-# Run(Server & Client)
+# Startup(Server & Client)
 1. Run server（Runs on a host with a public network IP）  
 ```shell
 ./tunserver -c ts.ini -d
