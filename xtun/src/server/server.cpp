@@ -108,8 +108,7 @@ void Server::serverAcceptProc(int fd, int mask)
         m_pLogger->info("new client connection from %s:%d", ip, port);
 
         m_mapClients[connfd];
-
-        printf("~!~!~!~!~!~! cfd: %d\n", connfd);
+        updateClientHeartbeat(connfd);
 
         tnet::non_block(connfd);
         m_reactor.registFileEvent(
