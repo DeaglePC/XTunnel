@@ -42,3 +42,5 @@ MakeFile
 CMakeCache.txt
 
 .idea
+xtun/cmake-build-debug-wsl
+xtun/cmake-build-release-wsl
