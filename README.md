@@ -84,7 +84,7 @@ According to the above configuration file, by connecting to the IP: port of the 
 
 3. Connect to LAN applications by connecting to public network IP
 ```shell
-ssh test@12.13.14.15 -p 38439
+ssh test@12.13.14.15 -p 12300
 ```
 
 
