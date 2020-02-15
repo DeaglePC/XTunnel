@@ -24,8 +24,8 @@ class Reactor
 private:
   std::unique_ptr<EventDemultiplexer> m_demultiplexer;
   EventHandlerMap m_fileEvents;
-  FiredEvents m_firedEvents; // 多次结果用同一份内存
-  Timer m_timePool;      // 定时器
+  FiredEvents m_firedEvents; // Multiplexed memory
+  Timer m_timer;
 
   bool m_isStopLoop;
 

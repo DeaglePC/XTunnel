@@ -71,7 +71,7 @@ int Reactor::processEvents(int flag)
     teShortest.id = -1;
     if ((flag & EVENT_LOOP_TIMER_EVENT) && !(flag & EVENT_LOOP_DONT_WAIT))
     {
-        teShortest = m_timePool.getNearestTimer();
+        teShortest = m_timer.getNearestTimer();
     }
 
     if (teShortest.id != -1)
@@ -140,7 +140,7 @@ int Reactor::processEvents(int flag)
 
     if (flag & EVENT_LOOP_TIMER_EVENT)
     {
-        processed += m_timePool.processTimeEvents();
+        processed += m_timer.processTimeEvents();
     }
     return processed;
 }
@@ -165,10 +165,10 @@ void Reactor::setStart()
 
 long long Reactor::registerTimeEvent(long long milliseconds, TimeProc timeProc)
 {
-    return m_timePool.createTimeEvent(milliseconds, std::move(timeProc));
+    return m_timer.createTimeEvent(milliseconds, std::move(timeProc));
 }
 
 int Reactor::removeTimeEvent(long long id)
 {
-    return m_timePool.deleteTimeEvent(id);
+    return m_timer.deleteTimeEvent(id);
 }
