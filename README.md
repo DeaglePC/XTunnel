@@ -73,13 +73,13 @@ According to the above configuration file, by connecting to the IP: port of the 
 # Startup(Server & Client)
 1. Run server（Runs on a host with a public network IP）  
 ```shell
-./tunserver -c ts.ini -d
+./xtuns -c ts.ini -d
 ```
 *`-d` Parameter representation runs as a daemon*
 
 2. Run client（Runs on a host in LAN）
 ```shell
-./tunclient -c tc.ini -d
+./xtunc-c tc.ini -d
 ```
 
 3. Connect to LAN applications by connecting to public network IP
