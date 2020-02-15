@@ -9,8 +9,8 @@ set(CMAKE_CXX_COMPILER g++)
 
 add_subdirectory(src)
 
-set(SERVER_TARGET "tunserver")
-set(CLIENT_TARGET "tunclient")
+set(SERVER_TARGET "xtuns")
+set(CLIENT_TARGET "xtunc")
 
 #aux_source_directory(${CMAKE_CURRENT_LIST_DIR}/src SRC)
 
@@ -24,10 +24,10 @@ include_directories(
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/bin/)
 
-add_executable(${SERVER_TARGET} ${CMAKE_CURRENT_LIST_DIR}/src/tunserver.cpp)
+add_executable(${SERVER_TARGET} ${CMAKE_CURRENT_LIST_DIR}/src/xtuns.cpp)
 target_link_libraries(${SERVER_TARGET} server msg net third_part)
 
-add_executable(${CLIENT_TARGET} ${CMAKE_CURRENT_LIST_DIR}/src/tunclient.cpp)
+add_executable(${CLIENT_TARGET} ${CMAKE_CURRENT_LIST_DIR}/src/xtunc.cpp)
 target_link_libraries(${CLIENT_TARGET} client msg net third_part)
 
 

@@ -1,19 +1,17 @@
-#include "timer_pool.h"
+#include "timer.h"
 
-TimerPool::TimerPool() : m_timeEventNextId(1)
-{
-    m_lastTime = time(NULL);
-}
+#include <utility>
 
-TimerPool::~TimerPool()
+Timer::Timer() : m_timeEventNextId(1)
 {
+    m_lastTime = time(nullptr);
 }
 
 void getTime(long *seconds, long *milliseconds)
 {
-    struct timeval tv;
+    struct timeval tv{};
 
-    gettimeofday(&tv, NULL);
+    gettimeofday(&tv, nullptr);
     *seconds = tv.tv_sec;
     *milliseconds = tv.tv_usec / 1000;
 }
@@ -34,18 +32,18 @@ void addMillisecondsToNow(long long milliseconds, long *sec, long *ms)
     *ms = when_ms;
 }
 
-long long TimerPool::createTimeEvent(long long milliseconds, TimeProc timeProc)
+long long Timer::createTimeEvent(long long milliseconds, TimeProc timeProc)
 {
     long long id = m_timeEventNextId++;
     TimeEvent te;
     te.id = id;
     addMillisecondsToNow(milliseconds, &te.when_sec, &te.when_ms);
-    te.timeProc = timeProc;
+    te.timeProc = std::move(timeProc);
     m_timeEvents.push_back(te);
     return id;
 }
 
-int TimerPool::deleteTimeEvent(long long id)
+int Timer::deleteTimeEvent(long long id)
 {
     for (auto it = m_timeEvents.begin(); it != m_timeEvents.end(); it++)
     {
@@ -58,7 +56,7 @@ int TimerPool::deleteTimeEvent(long long id)
     return TIMER_ERR;
 }
 
-TimeEvent TimerPool::getNearestTimer()
+TimeEvent Timer::getNearestTimer()
 {
     TimeEvent minVal;
     minVal.id = -1;
@@ -72,20 +70,20 @@ TimeEvent TimerPool::getNearestTimer()
     return minVal;
 }
 
-int TimerPool::processTimeEvents()
+int Timer::processTimeEvents()
 {
     long now_sec, now_ms, when_sec, when_ms;
     long long id;
     int nProcessed = 0;
-    time_t now = time(NULL);
+    time_t now = time(nullptr);
 
     /* 上次处理的时间一定是比这次的时间戳小的，
      * 处理一种情况是把系统时间调的很大，然后又调正确 */
     if (now < m_lastTime)
     {
-        for (auto it = m_timeEvents.begin(); it != m_timeEvents.end(); it++)
+        for (auto & m_timeEvent : m_timeEvents)
         {
-            it->when_sec = 0;
+            m_timeEvent.when_sec = 0;
         }
     }
     m_lastTime = now;

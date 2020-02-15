@@ -74,13 +74,13 @@ remote_port = 12302
 # 运行（服务端与客户端）
 1. 运行服务端（在公网ip的机器上）  
 ```shell
-./tunserver -c ts.ini -d
+./xtuns -c ts.ini -d
 ```
 *`-d` 参数表示以守护进程运行*
 
 2. 运行客户端（在局域网机器中运行）
 ```shell
-./tunclient -c tc.ini -d
+./xtunc -c tc.ini -d
 ```
 
 3. 访问公网ip暴露的端口即可访问本地的应用，如ssh

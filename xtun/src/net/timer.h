@@ -9,6 +9,7 @@
 #define TIMER_OK 0
 #define TIMER_ERR -1
 
+
 /* 需要返回下次多久后执行本函数 < 0 则不继续执行 */
 using TimeProc = std::function<int(long long id)>;
 struct TimeEvent
@@ -37,10 +38,12 @@ struct TimeEvent
     }
 };
 
+
 void getTime(long *seconds, long *milliseconds);
 void addMillisecondsToNow(long long milliseconds, long *sec, long *ms);
 
-class TimerPool
+
+class Timer
 {
   private:
     long long m_timeEventNextId;
@@ -48,8 +51,8 @@ class TimerPool
     time_t m_lastTime;
 
   public:
-    TimerPool();
-    ~TimerPool();
+    Timer();
+    ~Timer() = default;
     long long createTimeEvent(long long milliseconds, TimeProc timeProc);
     int deleteTimeEvent(long long id);
     TimeEvent getNearestTimer();

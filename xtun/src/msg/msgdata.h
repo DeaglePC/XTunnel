@@ -1,6 +1,8 @@
 #ifndef __MSGDATA_H__
 #define __MSGDATA_H__
 
+#include <memory>
+
 #include "../third_part/aes.h"
 #include "cryptor.h"
 
@@ -22,25 +24,24 @@ struct MsgData
 {
     int type{-1};   // 消息类型
     int size{0};    // 结构体之后的数据大小
-    int userid{0};
+    int userId{0};
 };
 
 struct NewProxyMsg
 {
-    int UserId;                // 客户端在服务端的id，暂时用客户端的connection fd表示
-    unsigned short rmeotePort; // 对外暴露的端口
+    int userId;                // 客户端在服务端的id，暂时用客户端的connection fd表示
+    unsigned short remotePort; // 对外暴露的端口
 };
 
 struct ReplyNewProxyMsg
 {
-    bool IsSuccess;
+    bool isSuccess;
 };
 
 struct DataHeader
 {
-    uint32_t dataLen;
-    uint8_t iv[AES_BLOCKLEN];
-    DataHeader() : dataLen(0) {}
+    uint32_t dataLen{0};
+    uint8_t iv[AES_BLOCKLEN]{};
 
     uint32_t ensureTargetDataSize()
     {
@@ -58,11 +59,11 @@ class MsgUtil
 {
 private:
 public:
-    MsgUtil();
-    ~MsgUtil();
+    MsgUtil() = default;
+    ~MsgUtil() = default;
 
-    static uint32_t ensureCryptedDataSize(uint32_t dataLen);
-    static uint32_t packCryptedData(Cryptor* cryptor, uint8_t *buf, uint8_t *data, uint32_t dataSize);
+    static uint32_t ensureEncryptedDataSize(uint32_t dataLen);
+    static uint32_t packEncryptedData(const std::unique_ptr<Cryptor>& cryptor, uint8_t *buf, uint8_t *data, uint32_t dataSize);
 };
 
 #endif

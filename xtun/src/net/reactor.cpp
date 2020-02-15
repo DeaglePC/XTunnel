@@ -1,24 +1,19 @@
-#include "reactor.h"
 #include <cstdio>
+#include <utility>
+
+#include "reactor.h"
+
 
 Reactor::Reactor() : m_demultiplexer(nullptr), m_isStopLoop(false)
 {
 #ifdef __linux__
-    m_demultiplexer = new EpollDemultiplexer;
+    m_demultiplexer = std::make_unique<EpollDemultiplexer>();
 #else
-    m_demultiplexer = new SelectDemultiplexer;
+    m_demultiplexer = std::make_unique<SelectDemultiplexer>();
 #endif // __linux__
 }
 
-Reactor::~Reactor()
-{
-    if (m_demultiplexer != nullptr)
-    {
-        delete m_demultiplexer;
-    }
-}
-
-void Reactor::registFileEvent(int fd, int mask, FileProc proc)
+void Reactor::registerFileEvent(int fd, int mask, const FileProc& proc)
 {
     m_demultiplexer->addEvent(m_fileEvents, fd, mask);
     auto it = m_fileEvents.find(fd);
@@ -71,12 +66,12 @@ int Reactor::processEvents(int flag)
         return 0;
 
     int ret, processed = 0;
-    struct timeval tv, *tvp;
+    struct timeval tv{}, *tvp;
     TimeEvent teShortest;
     teShortest.id = -1;
     if ((flag & EVENT_LOOP_TIMER_EVENT) && !(flag & EVENT_LOOP_DONT_WAIT))
     {
-        teShortest = m_timePool.getNearestTimer();
+        teShortest = m_timer.getNearestTimer();
     }
 
     if (teShortest.id != -1)
@@ -110,11 +105,11 @@ int Reactor::processEvents(int flag)
         else
         {
             // 阻塞
-            tvp = NULL;
+            tvp = nullptr;
         }
     }
 
-    if (tvp == NULL)
+    if (tvp == nullptr)
         printf("tvp NULL");
     else
     {
@@ -145,7 +140,7 @@ int Reactor::processEvents(int flag)
 
     if (flag & EVENT_LOOP_TIMER_EVENT)
     {
-        processed += m_timePool.processTimeEvents();
+        processed += m_timer.processTimeEvents();
     }
     return processed;
 }
@@ -168,12 +163,12 @@ void Reactor::setStart()
     m_isStopLoop = false;
 }
 
-long long Reactor::registTimeEvent(long long milliseconds, TimeProc timeProc)
+long long Reactor::registerTimeEvent(long long milliseconds, TimeProc timeProc)
 {
-    return m_timePool.createTimeEvent(milliseconds, timeProc);
+    return m_timer.createTimeEvent(milliseconds, std::move(timeProc));
 }
 
 int Reactor::removeTimeEvent(long long id)
 {
-    return m_timePool.deleteTimeEvent(id);
+    return m_timer.deleteTimeEvent(id);
 }

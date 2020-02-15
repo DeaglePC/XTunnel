@@ -1,14 +1,15 @@
 #ifndef __EVENT_DEMULTIPLEXER_H__
 #define __EVENT_DEMULTIPLEXER_H__
 
-#include <sys/time.h>
+#include <ctime>
 #include "event.h"
+
 
 class EventDemultiplexer
 {
   public:
-    EventDemultiplexer() {}
-    virtual ~EventDemultiplexer() {}
+    EventDemultiplexer() = default;
+    virtual ~EventDemultiplexer() = default;
 
     virtual void addEvent(const EventHandlerMap &fileEvents, int fd, int mask) = 0;
     virtual void delEvent(const EventHandlerMap &fileEvents, int fd, int mask) = 0;
