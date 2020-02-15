@@ -6,22 +6,17 @@
 #include "../third_part/md5.h"
 
 
-Server::Server(unsigned short port)
-    : m_serverSocketFd(-1), m_serverPort(port), m_pLogger(nullptr)
+Server::Server(std::shared_ptr<Logger> &logger, unsigned short port)
+    : m_serverSocketFd(-1), m_serverPort(port), m_pLogger(logger)
 {
     initServer();
 }
 
 Server::~Server()
 {
-    printf("~~~~~~~gg~~~~~~~~\n");
     if (m_serverSocketFd != -1)
     {
         close(m_serverSocketFd);
-    }
-    if (m_proxySocketFd != -1)
-    {
-        close(m_proxySocketFd);
     }
 
     std::vector<int> clients;
@@ -34,7 +29,8 @@ Server::~Server()
         deleteClient(c);
     }
 
-    m_pLogger->info("exit server...");
+    printf("bye...");
+    m_pLogger->info("bye...");
 }
 
 int Server::listenControl()
@@ -97,7 +93,7 @@ void Server::serverAcceptProc(int fd, int mask)
         int connfd = tnet::tcp_accept(fd, ip, INET_ADDRSTRLEN, &port);
         if (connfd == -1)
         {
-            if (errno != EAGAIN && EAGAIN != EWOULDBLOCK)
+            if (errno != EAGAIN && errno != EWOULDBLOCK)
             {
                 printf("serverAcceptProc accept err: %d\n", errno);
                 m_pLogger->err("serverAcceptProc accept err: %d", errno);
@@ -125,7 +121,7 @@ void Server::serverAcceptProc(int fd, int mask)
 }
 
 // ---------------------------------
-void Server::clientSafeRecv(int cfd, std::function<void(int cfd, size_t dataSize)> callback)
+void Server::clientSafeRecv(int cfd, const std::function<void(int cfd, size_t dataSize)>& callback)
 {
     int ret;
     // there is not header init if data len is 0
@@ -140,7 +136,7 @@ void Server::clientSafeRecv(int cfd, std::function<void(int cfd, size_t dataSize
     
     if (ret == -1)
     {
-        if (errno != EAGAIN && EAGAIN != EWOULDBLOCK)
+        if (errno != EAGAIN && errno != EWOULDBLOCK)
         {
             printf("recv client data err: %d\n", errno);
             m_pLogger->err("recv client data err: %d\n", errno);
@@ -183,16 +179,16 @@ void Server::clientSafeRecv(int cfd, std::function<void(int cfd, size_t dataSize
 }
 
 // befor use this method, ensure you have filled the buf
-void Server::clitneSafeSend(int cfd, std::function<void(int cfd)> callback)
+void Server::clientSafeSend(int cfd, const std::function<void(int cfd)>& callback)
 {
     int ret = send(cfd, &m_mapClients[cfd].sendBuf, m_mapClients[cfd].sendSize, MSG_DONTWAIT);
 
     if (ret == -1)
     {
-        if (errno != EAGAIN && EAGAIN != EWOULDBLOCK)
+        if (errno != EAGAIN && errno != EWOULDBLOCK)
         {
-            printf("clitneSafeSend err: %d\n", errno);
-            m_pLogger->err("clitneSafeSend err: %d\n", errno);
+            printf("clientSafeSend err: %d\n", errno);
+            m_pLogger->err("clientSafeSend err: %d\n", errno);
             deleteClient(cfd);
         }
     }
@@ -248,14 +244,10 @@ void Server::checkClientAuthResult(int cfd, size_t dataSize)
         return;
     }
 
-    if (strncmp(m_serverPassword, m_mapClients[cfd].recvBuf, sizeof(m_serverPassword)) == 0)
-    {
-        processClientAuthResult(cfd, true);
-    }
-    else
-    {
-        processClientAuthResult(cfd, false);
-    }
+    processClientAuthResult(
+        cfd,
+        strncmp(m_serverPassword, m_mapClients[cfd].recvBuf, sizeof(m_serverPassword)) == 0
+    );
 }
 
 void Server::processClientAuthResult(int cfd, bool isGood)
@@ -269,11 +261,11 @@ void Server::processClientAuthResult(int cfd, bool isGood)
         m_mapClients[cfd].status = CLIENT_STATUS_PW_WRONG;
     }
 
-    m_mapClients[cfd].sendSize += MsgUtil::packCryptedData(
-        m_pCryptor, 
-        (uint8_t*)m_mapClients[cfd].currSendBufAddr(), 
-        (uint8_t*)AUTH_TOKEN,
-        sizeof(AUTH_TOKEN)
+    m_mapClients[cfd].sendSize += MsgUtil::packEncryptedData(
+            m_pCryptor,
+            (uint8_t *) m_mapClients[cfd].currSendBufAddr(),
+            (uint8_t *) AUTH_TOKEN,
+            sizeof(AUTH_TOKEN)
     );
 
     m_reactor.registFileEvent(
@@ -295,12 +287,12 @@ void Server::replyClientAuthProc(int cfd, int mask)
         return;
     }
 
-    clitneSafeSend(
-        cfd,
-        std::bind(
-            &Server::onReplyClientAuthDone, 
-            this, std::placeholders::_1
-        )
+    clientSafeSend(
+            cfd,
+            std::bind(
+                    &Server::onReplyClientAuthDone,
+                    this, std::placeholders::_1
+            )
     );
 }
 
@@ -413,7 +405,7 @@ int Server::listenRemotePort(int cfd)
             continue;
         }
         num++;
-        ListenInfo linfo;
+        ListenInfo linfo = {0};
         linfo.port = port;
         linfo.clientFd = cfd;
         m_mapListen[fd] = linfo;
@@ -436,7 +428,7 @@ void Server::userAcceptProc(int fd, int mask)
         int connfd = tnet::tcp_accept(fd, ip, INET_ADDRSTRLEN, &port);
         if (connfd == -1)
         {
-            if (errno != EAGAIN && EAGAIN != EWOULDBLOCK)
+            if (errno != EAGAIN && errno != EWOULDBLOCK)
             {
                 printf("userAcceptProc accept err: %d\n", errno);
                 m_pLogger->err("userAcceptProc accept err: %d", errno);
@@ -448,8 +440,7 @@ void Server::userAcceptProc(int fd, int mask)
 
         m_mapUsers[connfd].port = m_mapListen[fd].port;
         m_mapUsers[connfd].cfd = m_mapListen[fd].clientFd;
-        printf("@@@@@ %d\n", connfd);
-        m_pLogger->warn("@@@@@ %d\n", connfd);
+
         tnet::non_block(connfd);
 
         m_reactor.registFileEvent(
@@ -468,11 +459,11 @@ void Server::userAcceptProc(int fd, int mask)
 
 void Server::sendClientNewProxy(int cfd, int ufd, unsigned short remotePort)
 {
-    MsgData msgData;
-    NewProxyMsg newProxyMsg;
+    MsgData msgData = {0};
+    NewProxyMsg newProxyMsg = {0};
 
-    newProxyMsg.UserId = ufd;
-    newProxyMsg.rmeotePort = remotePort;
+    newProxyMsg.userId = ufd;
+    newProxyMsg.remotePort = remotePort;
 
     msgData.type = MSGTYPE_NEW_PROXY;
     msgData.size = sizeof(newProxyMsg);
@@ -483,11 +474,11 @@ void Server::sendClientNewProxy(int cfd, int ufd, unsigned short remotePort)
     memcpy(buf + sizeof(msgData), &newProxyMsg, sizeof(newProxyMsg));
 
     printf("##### ufd: %d\n", ufd);
-    m_mapClients[cfd].sendSize += MsgUtil::packCryptedData(
-        m_pCryptor, 
-        (uint8_t*)m_mapClients[cfd].currSendBufAddr(), 
-        (uint8_t*)buf,
-        bufSize
+    m_mapClients[cfd].sendSize += MsgUtil::packEncryptedData(
+            m_pCryptor,
+            (uint8_t *) m_mapClients[cfd].currSendBufAddr(),
+            (uint8_t *) buf,
+            bufSize
     );
 
     m_reactor.registFileEvent(
@@ -509,12 +500,12 @@ void Server::sendClientNewProxyProc(int cfd, int mask)
         return;
     }
 
-    clitneSafeSend(
-        cfd,
-        std::bind(
-            &Server::onSendClientNewProxyDone, 
-            this, std::placeholders::_1
-        )
+    clientSafeSend(
+            cfd,
+            std::bind(
+                    &Server::onSendClientNewProxyDone,
+                    this, std::placeholders::_1
+            )
     );
 }
 
@@ -558,18 +549,16 @@ void Server::processClientBuf(int cfd, size_t dataSize)
     }
     else if (msgData.type == MSGTYPE_REPLY_NEW_PROXY)
     {
-        ReplyNewProxyMsg rnpm;
+        ReplyNewProxyMsg rnpm = {false};
         memcpy(&rnpm, m_mapClients[cfd].recvBuf + sizeof(MsgData), msgData.size);
 
-        processNewProxy(rnpm, msgData.userid);
+        processNewProxy(rnpm, msgData.userId);
     }
     else if (msgData.type == MSGTYPE_CLIENT_APP_DATA)
     {
-        int ufd = msgData.userid;
-        // printf("$$$$$$$ ufd: %d\n", ufd);
+        int ufd = msgData.userId;
         if (m_mapUsers[ufd].isSendBufFull())
         {
-            // TODO tell client user down
             tellClientUserDown(ufd);
             deleteUser(ufd);
             m_pLogger->err("user: %d send buf is full!", ufd);
@@ -583,7 +572,7 @@ void Server::processClientBuf(int cfd, size_t dataSize)
         );
         m_mapUsers[ufd].sendSize += msgData.size;
 
-        // duplicated regist is ok
+        // duplicated register is ok
         m_reactor.registFileEvent(
             ufd,
             EVENT_WRITABLE,
@@ -597,7 +586,7 @@ void Server::processClientBuf(int cfd, size_t dataSize)
     }
     else if (msgData.type == MSGTYPE_LOCAL_DOWN)
     {
-        deleteUser(msgData.userid);
+        deleteUser(msgData.userId);
     }
 }
 
@@ -607,14 +596,14 @@ void Server::tellClientUserDown(int ufd)
 
     MsgData msgData;
     msgData.type = MSGTYPE_USER_DOWN;
-    msgData.userid = ufd;
+    msgData.userId = ufd;
     msgData.size = 0;
 
-    m_mapClients[cfd].sendSize += MsgUtil::packCryptedData(
-        m_pCryptor, 
-        (uint8_t*)m_mapClients[cfd].currSendBufAddr(), 
-        (uint8_t*)&msgData,
-        sizeof(msgData)
+    m_mapClients[cfd].sendSize += MsgUtil::packEncryptedData(
+            m_pCryptor,
+            (uint8_t *) m_mapClients[cfd].currSendBufAddr(),
+            (uint8_t *) &msgData,
+            sizeof(msgData)
     );
 
     m_reactor.registFileEvent(
@@ -636,13 +625,13 @@ void Server::tellClientUserDownProc(int cfd, int mask)
         return;
     }
 
-    clitneSafeSend(
-        cfd, 
-        std::bind(
-            &Server::onTellClientUserDownDone,
-            this,
-            std::placeholders::_1
-        )
+    clientSafeSend(
+            cfd,
+            std::bind(
+                    &Server::onTellClientUserDownDone,
+                    this,
+                    std::placeholders::_1
+            )
     );
 }
 
@@ -670,11 +659,11 @@ void Server::sendHeartbeat(int cfd)
     memcpy(bufData, &heartData, sizeof(heartData));
     memcpy(bufData + sizeof(heartData), HEARTBEAT_SERVER_MSG, strlen(HEARTBEAT_SERVER_MSG));
 
-    m_mapClients[cfd].sendSize += MsgUtil::packCryptedData(
-        m_pCryptor, 
-        (uint8_t*)m_mapClients[cfd].currSendBufAddr(), 
-        (uint8_t*)bufData, 
-        dataSize
+    m_mapClients[cfd].sendSize += MsgUtil::packEncryptedData(
+            m_pCryptor,
+            (uint8_t *) m_mapClients[cfd].currSendBufAddr(),
+            (uint8_t *) bufData,
+            dataSize
     );
 
     m_reactor.registFileEvent(
@@ -696,20 +685,19 @@ void Server::writeHeartbeatDataProc(int cfd, int mask)
         return;
     }
 
-    clitneSafeSend(
-        cfd, 
-        std::bind(
-            &Server::onWriteHeartbeatDataDone,
-            this,
-            std::placeholders::_1
-        )
+    clientSafeSend(
+            cfd,
+            std::bind(
+                    &Server::onWriteHeartbeatDataDone,
+                    this,
+                    std::placeholders::_1
+            )
     );
 }
 
 void Server::onWriteHeartbeatDataDone(int cfd)
 {
     m_reactor.removeFileEvent(cfd, EVENT_WRITABLE);
-    // printf("onWriteHeartbeatDataDone\n");
 }
 
 void Server::updateClientHeartbeat(int cfd)
@@ -750,7 +738,7 @@ int Server::checkHeartbeatTimerProc(long long id)
 
 void Server::processNewProxy(const ReplyNewProxyMsg &rnpm, int uid)
 {
-    if (rnpm.IsSuccess)
+    if (rnpm.isSuccess)
     {
         printf("make proxy tunnel success\n");
         m_pLogger->info("make proxy tunnel success");
@@ -791,7 +779,7 @@ void Server::userWriteDataProc(int fd, int mask)
     }
     else
     {
-        if (errno != EAGAIN && EAGAIN != EWOULDBLOCK)
+        if (errno != EAGAIN && errno != EWOULDBLOCK)
         {
             printf("userWriteDataProc send err:%d\n", errno);
             m_pLogger->err("userWriteDataProc send err:%d", errno);
@@ -819,17 +807,11 @@ void Server::userReadDataProc(int ufd, int mask)
                        MAX_BUF_SIZE - recvOffset, MSG_DONTWAIT);
     if (numRecv == -1)
     {
-        if (errno != EAGAIN && EAGAIN != EWOULDBLOCK)
+        if (errno != EAGAIN && errno != EWOULDBLOCK)
         {
             printf("userReadDataProc recv err: %d\n", errno);
             m_pLogger->err("userReadDataProc recv err: %d\n", errno);
             return;
-        }
-        printf("unknown error===== %d fd: %d\n", errno, ufd);
-        if (errno == ENOTSOCK)
-        {
-            printf("error\n");
-            exit(-1);
         }
     }
     else if (numRecv == 0)
@@ -841,21 +823,15 @@ void Server::userReadDataProc(int ufd, int mask)
         MsgData msgData;
         msgData.type = MSGTYPE_CLIENT_APP_DATA;
         msgData.size = numRecv;
-        msgData.userid = ufd;
+        msgData.userId = ufd;
         memcpy(m_mapClients[cfd].currSendBufAddr(), &msgData, sizeof(msgData));
 
-        // printf("^^^^^^^^ %d\n", m_mapClients[cfd].sendSize);
-        // printf("%d %d %d\n", msgData.type, msgData.size, msgData.userid);
-
-        m_mapClients[cfd].sendSize += MsgUtil::packCryptedData(
-            m_pCryptor,
-            (uint8_t*)m_mapClients[cfd].currSendBufAddr(),
-            (uint8_t*)m_mapClients[cfd].currSendBufAddr(),
-            numRecv + sizeof(msgData)
+        m_mapClients[cfd].sendSize += MsgUtil::packEncryptedData(
+                m_pCryptor,
+                (uint8_t *) m_mapClients[cfd].currSendBufAddr(),
+                (uint8_t *) m_mapClients[cfd].currSendBufAddr(),
+                numRecv + sizeof(msgData)
         );
-
-        // printf("!^^^^^^^^ %d    cfd: %d\n", m_mapClients[cfd].sendSize, cfd);
-        // TODO 客户端断开连接时的消息
 
         m_reactor.registFileEvent(
             cfd, 
@@ -873,14 +849,12 @@ void Server::userReadDataProc(int ufd, int mask)
 
 void Server::sendUserDataProc(int fd, int mask)
 {
-    // printf("&&&&&&&&&&&&&&fd: %d, mask: %d\n", fd, mask);
     if (!(mask & EVENT_WRITABLE))
     {
         return;
     }
-    // printf("*********&&&&&&&\n");
 
-    clitneSafeSend(
+    clientSafeSend(
         fd,
         std::bind(
             &Server::onSendUserDataDone,
@@ -964,33 +938,16 @@ int Server::findClientfdByPort(unsigned short port)
     return -1;
 }
 
-void Server::initCryptor()
-{
-    m_pCryptor = new Cryptor(CRYPT_CBC, (uint8_t*)m_serverPassword);
-    if(m_pCryptor == nullptr)
-    {
-        m_pLogger->err("new Cryptor object error");
-        exit(-1);
-    }
-}
-
 void Server::setPassword(const char *password)
 {
-    if (password != NULL)
-    {
-        strncpy(m_serverPassword, MD5(password).toStr().c_str(), sizeof(m_serverPassword)); // md5加密
-    }
-
-    initCryptor();
-}
-
-void Server::setLogger(Logger *logger)
-{
-    if (logger == nullptr)
+    if (password == nullptr)
     {
         return;
     }
-    m_pLogger = logger;
+
+    strncpy(m_serverPassword, MD5(password).toStr().c_str(), sizeof(m_serverPassword)); // md5加密
+
+    m_pCryptor = std::make_unique<Cryptor>(CRYPT_CBC, (uint8_t*)m_serverPassword);
 }
 
 void Server::startEventLoop()

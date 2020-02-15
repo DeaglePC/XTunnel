@@ -7,9 +7,10 @@
 #include "../third_part/md5.h"
 
 
-Client::Client(const char *sip, unsigned short sport) : m_clientSocketFd(-1), m_pLogger(nullptr)
+Client::Client(std::shared_ptr<Logger> &logger, const char *sip, unsigned short sport)
+: m_clientSocketFd(-1), m_pLogger(logger)
 {
-    if (sip == NULL)
+    if (sip == nullptr)
     {
         return;
     }
@@ -33,11 +34,8 @@ Client::~Client()
         close(it.first);
     }
 
-    if(m_pCryptor)
-    {
-        delete m_pCryptor;
-    }
-    m_pLogger->info("exit client...");
+    printf("bye...");
+    m_pLogger->info("bye...");
 }
 
 int Client::connectServer()
@@ -54,10 +52,10 @@ int Client::sendAuthPassword()
 {
     int ret, sendCnt = 0;
 
-    uint8_t buf[MsgUtil::ensureCryptedDataSize(PW_MAX_LEN)];
-    uint32_t dataLen = MsgUtil::packCryptedData(m_pCryptor, buf, (uint8_t*)m_password, PW_MAX_LEN);
+    uint8_t buf[MsgUtil::ensureEncryptedDataSize(PW_MAX_LEN)];
+    uint32_t dataLen = MsgUtil::packEncryptedData(m_pCryptor, buf, (uint8_t *) m_password, PW_MAX_LEN);
 
-    while (1)
+    while (true)
     {
         ret = send(m_clientSocketFd, buf + sendCnt, dataLen - sendCnt, 0);
         if (ret > 0)
@@ -90,7 +88,7 @@ int Client::checkAuthResult()
     uint8_t recvBuf[sizeof(DataHeader) + AES_BLOCKLEN];
     size_t targetSize;
 
-    while (1)
+    while (true)
     {
         targetSize = header.ensureTargetDataSize();
         ret = recv(m_clientSocketFd, recvBuf, targetSize, 0);  // block
@@ -130,14 +128,14 @@ int Client::checkAuthResult()
         {
             printf("authServer server offline: %d\n", errno);
             m_pLogger->err("authServer server offline: %d", errno);
-            return AUTH_UNKNOW;
+            return AUTH_UNKNOWN;
         }
         else
         {
             // should never happen
             printf("authServer unknown error: %d\n", errno);
             m_pLogger->err("authServer unknown error: %d", errno);
-            return AUTH_UNKNOW;
+            return AUTH_UNKNOWN;
         }
     }
 }
@@ -175,8 +173,8 @@ int Client::sendPorts()
     }
 
     size_t dataSize = sizeof(ports);
-    uint8_t buf[MsgUtil::ensureCryptedDataSize(dataSize)];
-    uint32_t cryptedDataLen = MsgUtil::packCryptedData(m_pCryptor, buf, (uint8_t*)ports, dataSize);
+    uint8_t buf[MsgUtil::ensureEncryptedDataSize(dataSize)];
+    uint32_t cryptedDataLen = MsgUtil::packEncryptedData(m_pCryptor, buf, (uint8_t *) ports, dataSize);
 
     int ret = send(m_clientSocketFd, buf, cryptedDataLen, 0); // block
     if (ret == -1)
@@ -202,7 +200,7 @@ int Client::sendPorts()
 }
 
 // send data to server
-void Client::serverSafeRecv(int sfd, std::function<void(size_t dataSize)> callback)
+void Client::serverSafeRecv(int sfd, const std::function<void(size_t dataSize)>& callback)
 {
     int ret;
     size_t targetSize = m_clientData.header.ensureTargetDataSize();
@@ -212,7 +210,7 @@ void Client::serverSafeRecv(int sfd, std::function<void(size_t dataSize)> callba
     
     if (ret == -1)
     {
-        if (errno != EAGAIN && EAGAIN != EWOULDBLOCK)
+        if (errno != EAGAIN && errno != EWOULDBLOCK)
         {
             printf("serverSafeRecv err: %d\n", errno);
             m_pLogger->err("serverSafeRecv err: %d", errno);
@@ -224,7 +222,6 @@ void Client::serverSafeRecv(int sfd, std::function<void(size_t dataSize)> callba
         printf("clientReadProc server offline\n");
         m_pLogger->info("clientReadProc server offline");
         stopClient();
-        // exit(-1);
     }
     else if (ret > 0)
     {
@@ -257,17 +254,16 @@ void Client::serverSafeRecv(int sfd, std::function<void(size_t dataSize)> callba
 }
 
 // 先加密，在把数据放到m_clientData.sendBuf+m_clientData.sendSize的位置即可
-void Client::serverSafeSend(int fd, std::function<void(int fd)> callback)
+void Client::serverSafeSend(int fd, const std::function<void(int fd)>& callback)
 {
     int ret = send(fd, &m_clientData.sendBuf, m_clientData.sendSize, MSG_DONTWAIT);
 
     if (ret == -1)
     {
-        if (errno != EAGAIN && EAGAIN != EWOULDBLOCK)
+        if (errno != EAGAIN && errno != EWOULDBLOCK)
         {
             printf("serverSafeSend err: %d\n", errno);
             m_pLogger->err("serverSafeSend err: %d\n", errno);
-            // TODO do something, may reconnect server...
         }
     }
     else if (ret > 0)
@@ -323,17 +319,17 @@ void Client::onClientReadDone(size_t dataSize)
     }
     else if (msgData.type == MSGTYPE_NEW_PROXY)
     {
-        NewProxyMsg newProxy;
+        NewProxyMsg newProxy = {0};
         memcpy(&newProxy, m_clientData.recvBuf + sizeof(MsgData), msgData.size);
 
-        printf("new proxy %d %d\n", newProxy.UserId, newProxy.rmeotePort);
-        m_pLogger->info("new proxy %d %d", newProxy.UserId, newProxy.rmeotePort);
+        printf("new proxy %d %d\n", newProxy.userId, newProxy.remotePort);
+        m_pLogger->info("new proxy %d %d", newProxy.userId, newProxy.remotePort);
 
         makeNewProxy(newProxy);
     }
     else if (msgData.type == MSGTYPE_CLIENT_APP_DATA)
     {
-        int ufd = msgData.userid;
+        int ufd = msgData.userId;
         int localFd = m_mapUsers[ufd].localFd;
 
         if (m_mapLocalConn[localFd].isSendBufFull())
@@ -364,7 +360,7 @@ void Client::onClientReadDone(size_t dataSize)
     }
     else if (msgData.type == MSGTYPE_USER_DOWN)
     {
-        deleteLocalConn(m_mapUsers[msgData.userid].localFd);
+        deleteLocalConn(m_mapUsers[msgData.userId].localFd);
     }
 }
 
@@ -401,18 +397,18 @@ int Client::checkHeartbeatTimerProc(long long id)
  */
 void Client::makeNewProxy(const NewProxyMsg &newProxy)
 {
-    int localFd = connectLocalApp(newProxy.rmeotePort);
+    int localFd = connectLocalApp(newProxy.remotePort);
     if (localFd == -1)
     {
-        replyNewProxy(newProxy.UserId, false);
+        replyNewProxy(newProxy.userId, false);
         return;
     }
 
-    printf("###uid: %d\n", newProxy.UserId);
-    m_mapLocalConn[localFd].userId = newProxy.UserId;
-    replyNewProxy(newProxy.UserId, true);
+    printf("###uid: %d\n", newProxy.userId);
+    m_mapLocalConn[localFd].userId = newProxy.userId;
+    replyNewProxy(newProxy.userId, true);
 
-    m_mapUsers[newProxy.UserId].localFd = localFd; 
+    m_mapUsers[newProxy.userId].localFd = localFd;
     // TODO regist event
     m_reactor.registFileEvent(localFd, EVENT_READABLE,
                               std::bind(&Client::localReadDataProc,
@@ -434,7 +430,7 @@ void Client::localReadDataProc(int fd, int mask)
                        MAX_BUF_SIZE - recvOffset, MSG_DONTWAIT);
     if (numRecv == -1)
     {
-        if (errno != EAGAIN && EAGAIN != EWOULDBLOCK)
+        if (errno != EAGAIN && errno != EWOULDBLOCK)
         {
             printf("localReadDataProc recv err: %d\n", errno);
             m_pLogger->err("localReadDataProc recv err: %d\n", errno);
@@ -451,14 +447,14 @@ void Client::localReadDataProc(int fd, int mask)
         MsgData msgData;
         msgData.type = MSGTYPE_CLIENT_APP_DATA;
         msgData.size = numRecv;
-        msgData.userid = m_mapLocalConn[fd].userId;
+        msgData.userId = m_mapLocalConn[fd].userId;
         memcpy(m_clientData.currSendBufAddr(), &msgData, sizeof(msgData));
 
-        m_clientData.sendSize += MsgUtil::packCryptedData(
-            m_pCryptor,
-            (uint8_t*)m_clientData.currSendBufAddr(),
-            (uint8_t*)m_clientData.currSendBufAddr(),
-            numRecv + sizeof(msgData)
+        m_clientData.sendSize += MsgUtil::packEncryptedData(
+                m_pCryptor,
+                (uint8_t *) m_clientData.currSendBufAddr(),
+                (uint8_t *) m_clientData.currSendBufAddr(),
+                numRecv + sizeof(msgData)
         );
 
         m_reactor.registFileEvent(
@@ -523,7 +519,7 @@ void Client::localWriteDataProc(int fd, int mask)
     }
     else
     {
-        if (errno != EAGAIN && EAGAIN != EWOULDBLOCK)
+        if (errno != EAGAIN && errno != EWOULDBLOCK)
         {
             printf("localWriteDataProc send err:%d\n", errno);
             m_pLogger->err("localWriteDataProc send err:%d", errno);
@@ -535,14 +531,14 @@ void Client::tellServerLocalDown(int lfd)
 {
     MsgData msgData;
     msgData.type = MSGTYPE_LOCAL_DOWN;
-    msgData.userid = m_mapLocalConn[lfd].userId;
+    msgData.userId = m_mapLocalConn[lfd].userId;
     msgData.size = 0;
 
-    m_clientData.sendSize += MsgUtil::packCryptedData(
-        m_pCryptor, 
-        (uint8_t*)m_clientData.currSendBufAddr(), 
-        (uint8_t*)&msgData,
-        sizeof(msgData)
+    m_clientData.sendSize += MsgUtil::packEncryptedData(
+            m_pCryptor,
+            (uint8_t *) m_clientData.currSendBufAddr(),
+            (uint8_t *) &msgData,
+            sizeof(msgData)
     );
 
     m_reactor.registFileEvent(
@@ -567,17 +563,17 @@ void Client::tellServerLocalDownProc(int fd, int mask)
     serverSafeSend(
         fd, 
         std::bind(
-            &Client::ontellServerLocalDownDone,
+            &Client::onTellServerLocalDownDone,
             this,
             std::placeholders::_1
         )
     );
 }
 
-void Client::ontellServerLocalDownDone(int fd)
+void Client::onTellServerLocalDownDone(int fd)
 {
     m_reactor.removeFileEvent(fd, EVENT_WRITABLE);
-    printf("ontellServerLocalDownDone\n");
+    printf("onTellServerLocalDownDone\n");
 }
 
 void Client::deleteLocalConn(int fd)
@@ -594,10 +590,9 @@ void Client::deleteLocalConn(int fd)
 void Client::replyNewProxy(int userId, bool isSuccess)
 {
     MsgData msgData;
-    ReplyNewProxyMsg replyMsg;
+    ReplyNewProxyMsg replyMsg = {false};
 
-    // replyMsg.UserId = userId;
-    replyMsg.IsSuccess = isSuccess;
+    replyMsg.isSuccess = isSuccess;
     msgData.type = MSGTYPE_REPLY_NEW_PROXY;
     msgData.size = sizeof(replyMsg);
 
@@ -609,11 +604,11 @@ void Client::replyNewProxy(int userId, bool isSuccess)
     memcpy(buf, &msgData, sizeof(msgData));
     memcpy(buf + sizeof(msgData), &replyMsg, sizeof(replyMsg));
 
-    m_clientData.sendSize += MsgUtil::packCryptedData(
-        m_pCryptor, 
-        (uint8_t*)m_clientData.currSendBufAddr(), 
-        (uint8_t*)buf,
-        bufSize
+    m_clientData.sendSize += MsgUtil::packEncryptedData(
+            m_pCryptor,
+            (uint8_t *) m_clientData.currSendBufAddr(),
+            (uint8_t *) buf,
+            bufSize
     );
 
     m_reactor.registFileEvent(
@@ -692,10 +687,10 @@ int Client::sendHeartbeatTimerProc(long long id)
     memcpy(bufData, &heartData, sizeof(heartData));
     memcpy(bufData + sizeof(heartData), HEARTBEAT_CLIENT_MSG, strlen(HEARTBEAT_CLIENT_MSG));
 
-    m_clientData.sendSize += MsgUtil::packCryptedData(
-        m_pCryptor, 
-        (uint8_t*)m_clientData.currSendBufAddr(), 
-        (uint8_t*)bufData,
+    m_clientData.sendSize += MsgUtil::packEncryptedData(
+        m_pCryptor,
+        (uint8_t *) m_clientData.currSendBufAddr(),
+        (uint8_t *) bufData,
         dataSize
     );
 
@@ -733,42 +728,24 @@ void Client::writeHeartbeatDataProc(int fd, int mask)
 void Client::onWriteHeartbeatDataDone(int fd)
 {
     m_reactor.removeFileEvent(fd, EVENT_WRITABLE);
-    // printf("onWriteHeartbeatDataDone\n");
 }
 
 
 void Client::setProxyConfig(const std::vector<ProxyInfo> &pcs)
 {
-    for (size_t i = 0; i < pcs.size(); i++)
-    {
-        m_configProxy.push_back(pcs[i]);
-    }
-}
-
-void Client::initCryptor()
-{
-    m_pCryptor = new Cryptor(CRYPT_CBC, (uint8_t*)m_password);
-    if(m_pCryptor == nullptr)
-    {
-        m_pLogger->err("new Cryptor object error");
-        exit(-1);
-    }
+    m_configProxy = pcs;
 }
 
 void Client::setPassword(const char *password)
 {
-    strncpy(m_password, MD5(password).toStr().c_str(), PW_MAX_LEN);
-
-    initCryptor();
-}
-
-void Client::setLogger(Logger* logger)
-{
-    if(logger == nullptr)
+    if (password == nullptr)
     {
         return;
+
     }
-    m_pLogger = logger;
+    strncpy(m_password, MD5(password).toStr().c_str(), PW_MAX_LEN);
+
+    m_pCryptor = std::make_unique<Cryptor>(CRYPT_CBC, (uint8_t*)m_password);
 }
 
 void Client::runClient()
@@ -793,7 +770,7 @@ void Client::runClient()
         m_pLogger->info("auth fail, wrong password");
         return;
     }
-    else if(ret == AUTH_UNKNOW)
+    else if(ret == AUTH_UNKNOWN)
     {
         m_pLogger->info("auth fail, know reply");
         return;

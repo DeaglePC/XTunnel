@@ -1,27 +1,32 @@
 #include <cstdio>
-#include <signal.h>
+#include <csignal>
 #include <vector>
 #include <cstring>
 #include <unistd.h>
+#include <memory>
 
 #include "client.h"
 #include "inifile.h"
 #include "logger.h"
 
+
+const char ERR_PARAM[] = "param is not illegal\n";
+
 std::vector<ProxyInfo> pcs;
-Client *g_pClient = nullptr;
+std::unique_ptr<Client> g_pClient;
+
 std::string g_strCfgFileName;
-const char ERR_PARAM[] = "param is not illage\n";
-Logger g_logger;
 bool g_isBackground = false; // 是否后台运行
+
 
 struct ConfigServer
 {
-    unsigned short serverPort;
+    unsigned short serverPort{};
     std::string password;
     std::string serverIp;
     std::string logPath;
 } g_cfg;
+
 
 void readConfig(const char *configFile)
 {
@@ -73,7 +78,7 @@ void readConfig(const char *configFile)
     {
         if (sections[i] != common && sections[i].length() != 0)
         {
-            ProxyInfo pi;
+            ProxyInfo pi = {0};
             iniFile.GetStringValue(sections[i], "local_ip", &localIp);
             iniFile.GetIntValue(sections[i], "remote_port", &remotePort);
             iniFile.GetIntValue(sections[i], "local_port", &localPort);
@@ -93,9 +98,7 @@ void sigShutdownHandler(int sig)
     {
     case SIGINT:
     case SIGTERM:
-        if (g_pClient != nullptr)
-            delete g_pClient;
-        break;
+        exit(0);
     default:
         break;
     }
@@ -107,12 +110,12 @@ void sigShutdownHandler(int sig)
  */
 void setupSignalHandlers()
 {
-    struct sigaction act;
+    struct sigaction act{};
     sigemptyset(&act.sa_mask);
     act.sa_flags = 0;
     act.sa_handler = sigShutdownHandler;
-    sigaction(SIGTERM, &act, NULL);
-    sigaction(SIGINT, &act, NULL);
+    sigaction(SIGTERM, &act, nullptr);
+    sigaction(SIGINT, &act, nullptr);
 }
 
 int main(int argc, char *argv[])
@@ -126,7 +129,7 @@ int main(int argc, char *argv[])
         switch (op)
         {
         case 'c':
-            if(optarg == NULL)
+            if(optarg == nullptr)
             {
                 printf(ERR_PARAM);
                 exit(-1);
@@ -139,7 +142,6 @@ int main(int argc, char *argv[])
         default:
             printf(ERR_PARAM);
             exit(-1);
-            break;
         }
     }
     
@@ -149,37 +151,33 @@ int main(int argc, char *argv[])
         daemon(0, 0);
     }
 
-    g_logger.setLogPath(g_cfg.logPath.c_str());
-    g_logger.setAppName("xtunc");
-    g_logger.info("---------------------");
-    g_logger.warn("---------------------");
-    g_logger.err("---------------------");
+    auto logger = std::make_shared<Logger>();
+    logger->setLogPath(g_cfg.logPath.c_str());
+    logger->setAppName("xtunc");
+    logger->info("---------------------");
+    logger->warn("---------------------");
+    logger->err("---------------------");
 
-    g_pClient = new Client(g_cfg.serverIp.c_str(), g_cfg.serverPort);
+    g_pClient = std::make_unique<Client>(logger, g_cfg.serverIp.c_str(), g_cfg.serverPort);
     if (g_pClient == nullptr)
     {
         printf("make client err\n");
-        g_logger.err("make client err");
+        logger->err("make client err");
         return -1;
     }
 
-    g_pClient->setLogger(&g_logger);
     g_pClient->setProxyConfig(pcs);
     g_pClient->setPassword(g_cfg.password.c_str());
 
     size_t retryCnt = 0, sleepSec;
-    while (1)
+    while (true)
     {
         g_pClient->runClient();
         
         printf("reconnect server...  %lu\n", retryCnt);
-        g_logger.info("reconnect server... %lu times", ++retryCnt);
+        logger->info("reconnect server... %lu times", ++retryCnt);
 
         sleepSec = retryCnt < 6 ? 10 * retryCnt : 60;
         sleep(sleepSec);   // seconds
     }
-    
-    delete g_pClient;
-
-    return 0;
 }

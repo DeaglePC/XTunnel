@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <unordered_map>
 #include <vector>
+#include <memory>
 
 #include "../msg/msgdata.h"
 #include "../msg/cryptor.h"
@@ -15,17 +16,8 @@
 
 const unsigned short DEFAULT_PORT = 10086;
 
-extern const size_t PW_MAX_LEN;
-extern const size_t MAX_BUF_SIZE;
-
 const int HEARTBEAT_INTERVAL_MS = 1000;      // 每次心跳的间隔时间
 const long DEFAULT_SERVER_TIMEOUT_MS = 5000; // 默认5秒没收到服务端的心跳表示服务端不在
-
-extern const char HEARTBEAT_CLIENT_MSG[];
-extern const char HEARTBEAT_SERVER_MSG[];
-
-extern const char AUTH_TOKEN[];
-
 
 
 enum ClientStatus
@@ -34,7 +26,6 @@ enum ClientStatus
   CLIENT_STATUS_PW_OK,
   CLIENT_STATUS_PW_WRONG,
 };
-
 
 
 struct ClientInfo
@@ -71,14 +62,12 @@ struct ClientInfo
 using ClientInfoMap = std::unordered_map<int, ClientInfo>;
 
 
-
 struct ListenInfo
 {
   unsigned short port; //  监听的对外端口
   int clientFd;        // 属于哪个客户端
 };
 using ListenInfoMap = std::unordered_map<int, ListenInfo>;
-
 
 
 struct UserInfo
@@ -108,16 +97,15 @@ private:
   Reactor m_reactor;
 
   int m_serverSocketFd;
-  int m_proxySocketFd;
 
   unsigned short m_serverPort;
 
-  char m_serverPassword[PW_MAX_LEN];
+  char m_serverPassword[PW_MAX_LEN]{};
 
-  Logger *m_pLogger;
-  Cryptor *m_pCryptor;
+  std::shared_ptr<Logger> m_pLogger;
+  std::unique_ptr<Cryptor> m_pCryptor;
 
-  long long m_heartbeatTimerId;
+  long long m_heartbeatTimerId{};
 
   ClientInfoMap m_mapClients;
   ListenInfoMap m_mapListen;
@@ -129,8 +117,8 @@ private:
   void serverAcceptProc(int fd, int mask);
 
   // recv and send
-  void clientSafeRecv(int cfd, std::function<void(int cfd, size_t dataSize)> callback);
-  void clitneSafeSend(int cfd, std::function<void(int cfd)> callback);
+  void clientSafeRecv(int cfd, const std::function<void(int cfd, size_t dataSize)>& callback);
+  void clientSafeSend(int cfd, const std::function<void(int cfd)>& callback);
 
   // auth methods
   void clientAuthProc(int fd, int mask);       // 1.接收客户端的认证消息
@@ -161,7 +149,6 @@ private:
 
   void processNewProxy(const ReplyNewProxyMsg &rnpm, int uid);  // 处理新代理连接
   int findClientfdByPort(unsigned short port);  // 通过对外端口查找属于哪个客户端
-  bool isExistsPort(unsigned short port);       // 检查对外端口是不是已经被其他客户端使用了，如果使用了，则丢弃该客户端
 
   int listenRemotePort(int cfd);                // 监听cfd客户端的远程端口
 
@@ -178,15 +165,12 @@ private:
   void deleteClient(int fd);
   void deleteUser(int fd);
 
-  void initCryptor();
-
 public:
-  Server(unsigned short port = DEFAULT_PORT);
+  explicit Server(std::shared_ptr<Logger> &logger, unsigned short port = DEFAULT_PORT);
   ~Server();
 
   void setPassword(const char *password);
-  void setLogger(Logger *logger);
-  
+
   void startEventLoop();
 };
 

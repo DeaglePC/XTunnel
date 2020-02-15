@@ -1,23 +1,26 @@
-#include "server.h"
-#include <map>
 #include <string>
-#include <signal.h>
-#include <fcntl.h>
+#include <csignal>
+#include <memory>
+
+#include "server.h"
 #include "inifile.h"
 #include "logger.h"
 
-Server *g_pServer = nullptr;
+
+const char ERR_PARAM[] = "param is not illegal\n";
+
+std::unique_ptr<Server> g_pServer;
 std::string g_strCfgFileName;
-const char ERR_PARAM[] = "param is not illage\n";
-Logger g_logger;
 bool g_isBackground = false; // 是否后台运行
+
 
 struct ConfigServer
 {
-    unsigned short serverPort;
+    unsigned short serverPort{};
     std::string password;
     std::string logPath;
 } g_cfg;
+
 
 void readConfig(const char *cfgFile)
 {
@@ -62,9 +65,7 @@ void sigShutdownHandler(int sig)
     {
     case SIGINT:
     case SIGTERM:
-        if (g_pServer != nullptr)
-            delete g_pServer;
-        break;
+        exit(0);
     default:
         break;
     }
@@ -76,12 +77,12 @@ void sigShutdownHandler(int sig)
  */
 void setupSignalHandlers()
 {
-    struct sigaction act;
+    struct sigaction act{};
     sigemptyset(&act.sa_mask);
     act.sa_flags = 0;
     act.sa_handler = sigShutdownHandler;
-    sigaction(SIGTERM, &act, NULL);
-    sigaction(SIGINT, &act, NULL);
+    sigaction(SIGTERM, &act, nullptr);
+    sigaction(SIGINT, &act, nullptr);
 }
 
 int main(int argc, char *argv[])
@@ -95,7 +96,7 @@ int main(int argc, char *argv[])
         switch (op)
         {
         case 'c':
-            if (optarg == NULL)
+            if (optarg == nullptr)
             {
                 printf(ERR_PARAM);
                 exit(-1);
@@ -108,7 +109,6 @@ int main(int argc, char *argv[])
         default:
             printf(ERR_PARAM);
             exit(-1);
-            break;
         }
     }
     
@@ -119,23 +119,17 @@ int main(int argc, char *argv[])
         daemon(0, 0);
     }
 
-    g_logger.setLogPath(g_cfg.logPath.c_str());
-    g_logger.setAppName("xtuns");
-    g_logger.info("-------------------------");
-    g_logger.warn("-------------------------");
-    g_logger.err("-------------------------");
+    auto logger = std::make_shared<Logger>();
 
-    g_pServer = new Server(g_cfg.serverPort);
-    if (g_pServer == nullptr)
-    {
-        printf("create server err\n");
-        g_logger.err("create server err");
-        return -1;
-    }
+    logger->setLogPath(g_cfg.logPath.c_str());
+    logger->setAppName("xtuns");
+    logger->info("-------------------------");
+    logger->warn("-------------------------");
+    logger->err("-------------------------");
+
+    g_pServer = std::make_unique<Server>(logger, g_cfg.serverPort);
     g_pServer->setPassword(g_cfg.password.c_str());
-    g_pServer->setLogger(&g_logger);
     g_pServer->startEventLoop();
 
-    delete g_pServer;
     return 0;
 }
