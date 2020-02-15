@@ -52,7 +52,7 @@ int Server::listenControl()
     }
 
     tnet::non_block(m_serverSocketFd);
-    m_reactor.registFileEvent(
+    m_reactor.registerFileEvent(
         m_serverSocketFd,
         EVENT_READABLE,
         std::bind(
@@ -74,7 +74,7 @@ void Server::initServer()
         exit(-1);
     }
 
-    m_heartbeatTimerId = m_reactor.registTimeEvent(
+    m_heartbeatTimerId = m_reactor.registerTimeEvent(
         HEARTBEAT_INTERVAL_MS,
         std::bind(
             &Server::checkHeartbeatTimerProc,
@@ -107,13 +107,13 @@ void Server::serverAcceptProc(int fd, int mask)
         updateClientHeartbeat(connfd);
 
         tnet::non_block(connfd);
-        m_reactor.registFileEvent(
-            connfd, 
+        m_reactor.registerFileEvent(
+            connfd,
             EVENT_READABLE,
             std::bind(
                 &Server::clientAuthProc,
                 this,
-                std::placeholders::_1, 
+                std::placeholders::_1,
                 std::placeholders::_2
             )
         );
@@ -268,12 +268,12 @@ void Server::processClientAuthResult(int cfd, bool isGood)
             sizeof(AUTH_TOKEN)
     );
 
-    m_reactor.registFileEvent(
-        cfd, 
+    m_reactor.registerFileEvent(
+        cfd,
         EVENT_WRITABLE,
         std::bind(
             &Server::replyClientAuthProc,
-            this, 
+            this,
             std::placeholders::_1,
             std::placeholders::_2
         )
@@ -301,13 +301,13 @@ void Server::onReplyClientAuthDone(int cfd)
     if (m_mapClients[cfd].status == CLIENT_STATUS_PW_OK)
     {
         m_reactor.removeFileEvent(cfd, EVENT_WRITABLE);
-        m_reactor.registFileEvent(
-            cfd, 
+        m_reactor.registerFileEvent(
+            cfd,
             EVENT_READABLE,
             std::bind(
                 &Server::recvClientProxyPortsProc,
-                this, 
-                std::placeholders::_1, 
+                this,
+                std::placeholders::_1,
                 std::placeholders::_2
             )
         );
@@ -378,9 +378,9 @@ void Server::initClient(int fd)
     listenRemotePort(fd);
     updateClientHeartbeat(fd);
 
-    m_reactor.registFileEvent(fd, EVENT_READABLE,
-                              std::bind(&Server::recvClientDataProc,
-                                        this, std::placeholders::_1, std::placeholders::_2));
+    m_reactor.registerFileEvent(fd, EVENT_READABLE,
+                                std::bind(&Server::recvClientDataProc,
+                                          this, std::placeholders::_1, std::placeholders::_2));
 }
 
 int Server::listenRemotePort(int cfd)
@@ -410,9 +410,9 @@ int Server::listenRemotePort(int cfd)
         linfo.clientFd = cfd;
         m_mapListen[fd] = linfo;
         tnet::non_block(fd);
-        m_reactor.registFileEvent(fd, EVENT_READABLE,
-                                  std::bind(&Server::userAcceptProc,
-                                            this, std::placeholders::_1, std::placeholders::_2));
+        m_reactor.registerFileEvent(fd, EVENT_READABLE,
+                                    std::bind(&Server::userAcceptProc,
+                                              this, std::placeholders::_1, std::placeholders::_2));
         printf("listenRemotePort listening port: %d\n", port);
         m_pLogger->info("listenRemotePort listening port: %d", port);
     }
@@ -443,13 +443,13 @@ void Server::userAcceptProc(int fd, int mask)
 
         tnet::non_block(connfd);
 
-        m_reactor.registFileEvent(
+        m_reactor.registerFileEvent(
             connfd,
             EVENT_READABLE,
             std::bind(
-                &Server::userReadDataProc, 
-                this, 
-                std::placeholders::_1, 
+                &Server::userReadDataProc,
+                this,
+                std::placeholders::_1,
                 std::placeholders::_2
             )
         );
@@ -481,12 +481,12 @@ void Server::sendClientNewProxy(int cfd, int ufd, unsigned short remotePort)
             bufSize
     );
 
-    m_reactor.registFileEvent(
+    m_reactor.registerFileEvent(
         cfd,
         EVENT_WRITABLE,
         std::bind(
             &Server::sendClientNewProxyProc,
-            this, 
+            this,
             std::placeholders::_1,
             std::placeholders::_2
         )
@@ -573,13 +573,13 @@ void Server::processClientBuf(int cfd, size_t dataSize)
         m_mapUsers[ufd].sendSize += msgData.size;
 
         // duplicated register is ok
-        m_reactor.registFileEvent(
+        m_reactor.registerFileEvent(
             ufd,
             EVENT_WRITABLE,
             std::bind(
                 &Server::userWriteDataProc,
-                this, 
-                std::placeholders::_1, 
+                this,
+                std::placeholders::_1,
                 std::placeholders::_2
             )
         );
@@ -606,7 +606,7 @@ void Server::tellClientUserDown(int ufd)
             sizeof(msgData)
     );
 
-    m_reactor.registFileEvent(
+    m_reactor.registerFileEvent(
         cfd,
         EVENT_WRITABLE,
         std::bind(
@@ -666,7 +666,7 @@ void Server::sendHeartbeat(int cfd)
             dataSize
     );
 
-    m_reactor.registFileEvent(
+    m_reactor.registerFileEvent(
         cfd,
         EVENT_WRITABLE,
         std::bind(
@@ -833,13 +833,13 @@ void Server::userReadDataProc(int ufd, int mask)
                 numRecv + sizeof(msgData)
         );
 
-        m_reactor.registFileEvent(
-            cfd, 
+        m_reactor.registerFileEvent(
+            cfd,
             EVENT_WRITABLE,
             std::bind(
                 &Server::sendUserDataProc,
-                this, 
-                std::placeholders::_1, 
+                this,
+                std::placeholders::_1,
                 std::placeholders::_2
             )
         );

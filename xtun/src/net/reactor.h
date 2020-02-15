@@ -1,6 +1,9 @@
 #ifndef __REACTOR_H__
 #define __REACTOR_H__
 
+#include <map>
+#include <memory>
+
 #include "event.h"
 #include "event_demultiplexer.h"
 #ifdef __linux__
@@ -8,8 +11,8 @@
 #else
 #include "select_demultiplexer.h"
 #endif // __linux__
-#include "timer_pool.h"
-#include <map>
+#include "timer.h"
+
 
 #define EVENT_LOOP_DONT_WAIT 1
 #define EVENT_LOOP_FILE_EVENT 2
@@ -19,10 +22,10 @@
 class Reactor
 {
 private:
-  EventDemultiplexer *m_demultiplexer;
+  std::unique_ptr<EventDemultiplexer> m_demultiplexer;
   EventHandlerMap m_fileEvents;
   FiredEvents m_firedEvents; // 多次结果用同一份内存
-  TimerPool m_timePool;      // 定时器
+  Timer m_timePool;      // 定时器
 
   bool m_isStopLoop;
 
@@ -30,16 +33,16 @@ private:
 
 public:
   Reactor();
-  ~Reactor();
+  ~Reactor() = default;
 
   void eventLoop(int flag);
   void stopEventLoop();
   void setStart();
 
-  void registFileEvent(int fd, int mask, FileProc proc);
+  void registerFileEvent(int fd, int mask, const FileProc& proc);
   void removeFileEvent(int fd, int mask);
 
-  long long registTimeEvent(long long milliseconds, TimeProc timeProc);
+  long long registerTimeEvent(long long milliseconds, TimeProc timeProc);
   int removeTimeEvent(long long id);
 };
 

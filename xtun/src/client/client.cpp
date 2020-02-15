@@ -347,13 +347,13 @@ void Client::onClientReadDone(size_t dataSize)
         );
         m_mapLocalConn[localFd].sendSize += msgData.size;
 
-        m_reactor.registFileEvent(
+        m_reactor.registerFileEvent(
             localFd,
             EVENT_WRITABLE,
             std::bind(
                 &Client::localWriteDataProc,
                 this,
-                std::placeholders::_1, 
+                std::placeholders::_1,
                 std::placeholders::_2
             )
         );
@@ -410,9 +410,9 @@ void Client::makeNewProxy(const NewProxyMsg &newProxy)
 
     m_mapUsers[newProxy.userId].localFd = localFd;
     // TODO regist event
-    m_reactor.registFileEvent(localFd, EVENT_READABLE,
-                              std::bind(&Client::localReadDataProc,
-                                        this, std::placeholders::_1, std::placeholders::_2));
+    m_reactor.registerFileEvent(localFd, EVENT_READABLE,
+                                std::bind(&Client::localReadDataProc,
+                                          this, std::placeholders::_1, std::placeholders::_2));
 }
 
 // send local app data to server ======================================= start
@@ -457,13 +457,13 @@ void Client::localReadDataProc(int fd, int mask)
                 numRecv + sizeof(msgData)
         );
 
-        m_reactor.registFileEvent(
-            m_clientSocketFd, 
+        m_reactor.registerFileEvent(
+            m_clientSocketFd,
             EVENT_WRITABLE,
             std::bind(
                 &Client::sendLocalDataProc,
-                this, 
-                std::placeholders::_1, 
+                this,
+                std::placeholders::_1,
                 std::placeholders::_2
             )
         );
@@ -541,7 +541,7 @@ void Client::tellServerLocalDown(int lfd)
             sizeof(msgData)
     );
 
-    m_reactor.registFileEvent(
+    m_reactor.registerFileEvent(
         m_clientSocketFd,
         EVENT_WRITABLE,
         std::bind(
@@ -611,7 +611,7 @@ void Client::replyNewProxy(int userId, bool isSuccess)
             bufSize
     );
 
-    m_reactor.registFileEvent(
+    m_reactor.registerFileEvent(
         m_clientSocketFd,
         EVENT_WRITABLE,
         std::bind(
@@ -694,7 +694,7 @@ int Client::sendHeartbeatTimerProc(long long id)
         dataSize
     );
 
-    m_reactor.registFileEvent(
+    m_reactor.registerFileEvent(
         m_clientSocketFd,
         EVENT_WRITABLE,
         std::bind(
@@ -789,13 +789,13 @@ void Client::runClient()
     m_lastServerHeartbeatMs = now_sec * 1000 + mow_ms;
 
     tnet::non_block(m_clientSocketFd);
-    m_reactor.registTimeEvent(0,
-                              std::bind(&Client::sendHeartbeatTimerProc, this, std::placeholders::_1));
-    m_reactor.registTimeEvent(HEARTBEAT_INTERVAL_MS,
-                              std::bind(&Client::checkHeartbeatTimerProc, this, std::placeholders::_1));
-    m_reactor.registFileEvent(m_clientSocketFd, EVENT_READABLE,
-                              std::bind(&Client::clientReadProc,
-                                        this, std::placeholders::_1, std::placeholders::_2));
+    m_reactor.registerTimeEvent(0,
+                                std::bind(&Client::sendHeartbeatTimerProc, this, std::placeholders::_1));
+    m_reactor.registerTimeEvent(HEARTBEAT_INTERVAL_MS,
+                                std::bind(&Client::checkHeartbeatTimerProc, this, std::placeholders::_1));
+    m_reactor.registerFileEvent(m_clientSocketFd, EVENT_READABLE,
+                                std::bind(&Client::clientReadProc,
+                                          this, std::placeholders::_1, std::placeholders::_2));
     
     m_pLogger->info("client running...");
     m_reactor.setStart();

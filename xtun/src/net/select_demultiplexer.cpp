@@ -1,14 +1,12 @@
+#include <cstring>
+
 #include "select_demultiplexer.h"
-#include <string.h>
+
 
 SelectDemultiplexer::SelectDemultiplexer()
 {
     FD_ZERO(&m_rfds);
     FD_ZERO(&m_rfds);
-}
-
-SelectDemultiplexer::~SelectDemultiplexer()
-{
 }
 
 void SelectDemultiplexer::addEvent(const EventHandlerMap& fileEvents, int fd, int mask)
@@ -41,7 +39,7 @@ int SelectDemultiplexer::pollEvent(const std::map<int, FileEvent> &fileEvents, F
     memcpy(&m_tmp_rfds, &m_rfds, sizeof(fd_set));
     memcpy(&m_tmp_wfds, &m_wfds, sizeof(fd_set));
 
-    int num = select(max_fd, &m_tmp_rfds, &m_tmp_wfds, NULL, tvp);
+    int num = select(max_fd, &m_tmp_rfds, &m_tmp_wfds, nullptr, tvp);
     if (num < 0)
     {
         return -1;
@@ -57,10 +55,10 @@ int SelectDemultiplexer::pollEvent(const std::map<int, FileEvent> &fileEvents, F
     {
         firedEvents.resize(num);
     }
-    for (auto it = fileEvents.begin(); it != fileEvents.end(); it++)
+    for (const auto & fileEvent : fileEvents)
     {
-        fd = it->first;
-        mask = it->second.mask;
+        fd = fileEvent.first;
+        mask = fileEvent.second.mask;
         int tmpMask = 0;
         if((mask & EVENT_READABLE) && FD_ISSET(fd, &m_tmp_rfds))
         {
