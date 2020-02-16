@@ -43,25 +43,25 @@ void readConfig(const char *configFile)
     ret = iniFile.GetStringValue(common, "server_ip", &serverIp);
     if(ret != 0)
     {
-        printf("config file cann't find server_ip\n");
+        printf("config file can't find server_ip\n");
         exit(-1);
     }
     ret = iniFile.GetStringValue(common, "password", &password);
     if(ret != 0)
     {
-        printf("config file cann't find password\n");
+        printf("config file can't find password\n");
         exit(-1);
     }
     ret = iniFile.GetIntValue(common, "server_port", &serverPort);
     if(ret != 0)
     {
-        printf("config file cann't find server_port\n");
+        printf("config file can't find server_port\n");
         exit(-1);
     }
     ret = iniFile.GetStringValue(common, "log_path", &logPath);
     if(ret != 0)
     {
-        printf("config file cann't find log_path\n");
+        printf("config file can't find log_path\n");
         exit(-1);
     }
 
