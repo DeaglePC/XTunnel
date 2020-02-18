@@ -92,7 +92,7 @@ TODO：
 - [x] 1. The configuration file  
 - [x] 2. Password encryption  
 - [x] 3. Heartbeats  
-- [x] 4. Encryption transmission  
+- [x] 4. Encrypted transmission  
 - [x] 5. Reconnect after disconnection
 - [ ] 6. Keep log files for n days only
 - [ ] 7. Add restart and stop parameters
