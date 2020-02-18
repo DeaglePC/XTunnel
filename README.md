@@ -9,7 +9,7 @@ A tool for penetrating the Intranet, allowing LAN ports to expose to the public 
 
 **Supporting Linux only for now. WSL is recommended under Windows**
 
-# Feature
+# Features
 1. The size of executable file is very small.（100+kb）
 2. Easy to run, without any dependence , can run directly to the background of the daemon process.
 3. The configuration file is simple.
