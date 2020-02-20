@@ -13,7 +13,7 @@ A tool for penetrating the Intranet, allowing LAN ports to expose to the public 
 1. The size of executable file is very small.（100+kb）
 2. Easy to run, without any dependence , can run directly to the background of the daemon process.
 3. The configuration file is simple.
-4. Encryption transmission, the forwarded data will be encrypted and then transmitted, encryption algorithm defaults to aes-256-cbc.
+4. Encryped transmission, the forwarded data will be encrypted and then transmitted, encryption algorithm defaults to aes-256-cbc.
 5. High performance IO, based on IO multiplexing, network event processing refers to redis Reactor event driven model.
 
 # Installation
