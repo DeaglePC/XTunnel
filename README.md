@@ -3,7 +3,7 @@
 [中文](https://github.com/DeaglePC/XTunnel/blob/master/README_CN.md) | [English](https://github.com/DeaglePC/XTunnel/blob/master/README.md)
 
 # Principle
-<div align=center><img src="https://github.com/DeaglePC/XTunnel/blob/master/xtun.png"/></div>
+<div align=center><img src="https://github.com/DeaglePC/XTunnel/blob/master/xtun.png" width="400" height="550"/></div>
 
 # Introduction  
 A tool for penetrating the Intranet, allowing LAN ports to expose to the public network to penetrate the LAN, similar to FRP, ngork and other software, but more lightweight, only for TCP connections, support multi-user and multi-client.  
