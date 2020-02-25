@@ -3,7 +3,7 @@
 [中文](https://github.com/DeaglePC/XTunnel/blob/master/README_CN.md) | [English](https://github.com/DeaglePC/XTunnel/blob/master/README.md)
 
 # 原理
-<div align=center><img src="https://github.com/DeaglePC/XTunnel/blob/master/xtun.png"/></div>
+<div align=center><img src="https://github.com/DeaglePC/XTunnel/blob/master/xtun.png" width="400" height="650"/></div>
 
 # XTunnel  
 ## 简介
