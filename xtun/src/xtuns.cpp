@@ -7,7 +7,7 @@
 #include "logger.h"
 
 
-const char ERR_PARAM[] = "param is not illegal\n";
+const char ERR_PARAM[] = "param is illegal\n";
 
 std::unique_ptr<Server> g_pServer;
 std::string g_strCfgFileName;
