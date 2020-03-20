@@ -10,7 +10,7 @@
 #include "logger.h"
 
 
-const char ERR_PARAM[] = "param is not illegal\n";
+const char ERR_PARAM[] = "param is illegal\n";
 
 std::vector<ProxyInfo> pcs;
 std::unique_ptr<Client> g_pClient;
