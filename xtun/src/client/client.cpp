@@ -578,6 +578,11 @@ void Client::onTellServerLocalDownDone(int fd)
 
 void Client::deleteLocalConn(int fd)
 {
+    if (fd == -1)
+    {
+        return;
+    }
+
     m_mapUsers.erase(m_mapLocalConn[fd].userId);
     m_mapLocalConn.erase(fd);
     close(fd);

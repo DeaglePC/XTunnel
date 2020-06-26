@@ -780,7 +780,7 @@ void Server::userWriteDataProc(int ufd, int mask)
 
         if (
             m_userFullBuffer.isFull()
-            && !m_mapUsers[ufd].isSendBufFull(m_mapUsers[ufd].sendSize + m_userFullBuffer.msgSize)
+            && !m_mapUsers[ufd].isSendBufFull(m_userFullBuffer.msgSize)
         )
         {
             memcpy(
