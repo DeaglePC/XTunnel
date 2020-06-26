@@ -126,8 +126,9 @@ void Server::clientSafeRecv(int cfd, const std::function<void(int cfd, size_t da
     int ret;
     // there is not header init if data len is 0
     size_t targetSize = m_mapClients[cfd].header.ensureTargetDataSize();
-    if (m_mapClients[cfd].isRecvBufFull())
+    if (m_mapClients[cfd].isRecvBufFull() || m_userFullBuffer.isFull())
     {
+        m_pLogger->warn("client recv buffer is full: %d, ", cfd);
         return;
     }
 
@@ -557,10 +558,10 @@ void Server::processClientBuf(int cfd, size_t dataSize)
     else if (msgData.type == MSGTYPE_CLIENT_APP_DATA)
     {
         int ufd = msgData.userId;
-        if (m_mapUsers[ufd].isSendBufFull())
+        if (m_mapUsers[ufd].isSendBufFull(msgData.size))
         {
-            tellClientUserDown(ufd);
-            deleteUser(ufd);
+            m_userFullBuffer.ufd = ufd;
+            m_userFullBuffer.msgSize = msgData.size;
             m_pLogger->err("user: %d send buf is full!", ufd);
             return;
         }
@@ -755,26 +756,40 @@ void Server::processNewProxy(const ReplyNewProxyMsg &rnpm, int uid)
 /*
  * 发送缓冲区的数据给user
  */
-void Server::userWriteDataProc(int fd, int mask)
+void Server::userWriteDataProc(int ufd, int mask)
 {
     printf("on userWriteDataProc\n");
-    auto numSend = send(fd, m_mapUsers[fd].sendBuf, m_mapUsers[fd].sendSize, MSG_DONTWAIT);
+    auto numSend = send(ufd, m_mapUsers[ufd].sendBuf, m_mapUsers[ufd].sendSize, MSG_DONTWAIT);
     if (numSend > 0)
     {
-        if (static_cast<size_t>(numSend) == m_mapUsers[fd].sendSize)
+        if (static_cast<size_t>(numSend) == m_mapUsers[ufd].sendSize)
         {
-            m_reactor.removeFileEvent(fd, EVENT_WRITABLE);
+            m_reactor.removeFileEvent(ufd, EVENT_WRITABLE);
             // 缓冲区已经全部发送了，从开始放数据
-            m_mapUsers[fd].sendSize = 0;
+            m_mapUsers[ufd].sendSize = 0;
             printf("userWriteDataProc: send all data: %ld\n", numSend);
         }
         else
         {
             // 没有全部发送完，把没发送的数据移动到前面
-            size_t newSize = m_mapUsers[fd].sendSize - numSend; // 还剩多少没发送完
-            m_mapUsers[fd].sendSize = newSize;
-            memmove(m_mapUsers[fd].sendBuf, m_mapUsers[fd].sendBuf + numSend, newSize);
+            size_t newSize = m_mapUsers[ufd].sendSize - numSend; // 还剩多少没发送完
+            m_mapUsers[ufd].sendSize = newSize;
+            memmove(m_mapUsers[ufd].sendBuf, m_mapUsers[ufd].sendBuf + numSend, newSize);
             printf("userWriteDataProc: send partial data: %ld, left:%lu\n", numSend, newSize);
+        }
+
+        if (
+            m_userFullBuffer.isFull()
+            && !m_mapUsers[ufd].isSendBufFull(m_mapUsers[ufd].sendSize + m_userFullBuffer.msgSize)
+        )
+        {
+            memcpy(
+                m_mapUsers[ufd].currSendBufAddr(),
+                m_mapClients[m_mapUsers[ufd].cfd].recvBuf + sizeof(MsgData),
+                m_userFullBuffer.msgSize
+            );
+            m_mapUsers[ufd].sendSize += m_userFullBuffer.msgSize;
+            m_userFullBuffer.reset();
         }
     }
     else
@@ -817,6 +832,7 @@ void Server::userReadDataProc(int ufd, int mask)
     else if (numRecv == 0)
     {
         deleteUser(ufd);
+        tellClientUserDown(ufd);
     }
     else if (numRecv > 0)
     {

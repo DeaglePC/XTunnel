@@ -83,12 +83,35 @@ struct UserInfo
     return sendSize >= MAX_BUF_SIZE;
   }
 
+  bool isSendBufFull(size_t size)
+  {
+      return sendSize + size >= MAX_BUF_SIZE;
+  }
+
   char* currSendBufAddr()
   {
     return sendBuf + sendSize;
   }
 };
 using UserInfoMap = std::unordered_map<int, UserInfo>;
+
+
+struct UserFullBufferInfo
+{
+    int ufd{-1};
+    size_t msgSize{0};
+
+    void reset()
+    {
+        ufd = -1;
+        msgSize = 0;
+    }
+
+    bool isFull()
+    {
+        return ufd != -1;
+    }
+};
 
 
 class Server
@@ -110,6 +133,8 @@ private:
   ClientInfoMap m_mapClients;
   ListenInfoMap m_mapListen;
   UserInfoMap m_mapUsers;
+
+  UserFullBufferInfo m_userFullBuffer;
 
   // server init methods
   int listenControl(); // 监听服务器控制端口，负责新客户端接入
@@ -153,7 +178,7 @@ private:
   int listenRemotePort(int cfd);                // 监听cfd客户端的远程端口
 
   void userReadDataProc(int fd, int mask);   // 接收用户发来的数据
-  void userWriteDataProc(int fd, int mask);  // 给用户发送的数据
+  void userWriteDataProc(int ufd, int mask);  // 给用户发送的数据
   void sendUserDataProc(int fd, int mask);  // 把用户发来的数据给客户端发过去
   void onSendUserDataDone(int fd);  // 发送完成时的回调
 

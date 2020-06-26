@@ -7,7 +7,7 @@
 #include "cryptor.h"
 
 const size_t PW_MAX_LEN = 32; // len of md5
-const size_t MAX_BUF_SIZE = 1024 * 1024 * 5; // 1m
+const size_t MAX_BUF_SIZE = 1024 * 16; // 16k
 
 
 enum MSGTYPE
