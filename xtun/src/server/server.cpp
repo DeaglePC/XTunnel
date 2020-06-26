@@ -831,8 +831,8 @@ void Server::userReadDataProc(int ufd, int mask)
     }
     else if (numRecv == 0)
     {
-        deleteUser(ufd);
         tellClientUserDown(ufd);
+        deleteUser(ufd);
     }
     else if (numRecv > 0)
     {
