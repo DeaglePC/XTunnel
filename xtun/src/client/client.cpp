@@ -199,7 +199,7 @@ int Client::sendPorts()
     
 }
 
-// send data to server
+// receive server data
 void Client::serverSafeRecv(int sfd, const std::function<void(size_t dataSize)>& callback)
 {
     int ret;
